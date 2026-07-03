@@ -94,7 +94,7 @@ export const SUPABASE_ANON_KEY = '';
 
 - [ ] **Step 4: 스모크 확인**
 
-Run: `node --test test/` → Expected: 테스트 0개로 통과(에러 없이 종료). `git status` → legacy.html, js/config.js, .gitignore 표시.
+Run: `git status` → legacy.html, js/config.js, .gitignore 표시. (`node --test test/`는 빈 디렉토리에서 exit 1이 정상 — Node 22는 빈 테스트 디렉토리를 MODULE_NOT_FOUND로 처리. 테스트 러너 검증은 Task 2부터.)
 
 - [ ] **Step 5: Commit**
 
@@ -218,7 +218,7 @@ export const toTxt = (session, segs) =>
 - [ ] **Step 4: 통과 확인**
 
 Run: `node --test test/helpers.test.mjs`
-Expected: PASS — 8 tests, 0 fail
+Expected: PASS — 7 tests, 0 fail
 
 - [ ] **Step 5: Commit**
 
@@ -338,6 +338,30 @@ test('drain: 성공 시 비움, 실패 시 중단하고 잔여 보존', async ()
   assert.equal(pushed.length, 2);
   assert.equal(store.pendingOps().length, 0);
 });
+
+test('drain: push 도중 enqueue된 op 유실 없음', async () => {
+  const s = store.createSession();
+  const pushed = [];
+  let injected = false;
+  await store.drain(async op => {
+    pushed.push(op);
+    if (!injected) { injected = true; store.addSegment(s.id, { tsMs: 0, timeLabel: '14:02', originalText: 'a', translatedText: 'b', srcLang: null }); }
+  });
+  assert.ok(pushed.some(o => o.type === 'segment'));
+  assert.equal(store.pendingOps().length, 0);
+});
+
+test('drain: push 중 같은 세션이 갱신되면 op이 다시 큐에 들어가 재push됨', async () => {
+  const s = store.createSession();
+  const pushed = [];
+  let updated = false;
+  await store.drain(async op => {
+    pushed.push(op);
+    if (!updated) { updated = true; store.updateSession(s.id, { title: 'mid-flight' }); }
+  });
+  assert.equal(pushed.filter(o => o.type === 'session' && o.id === s.id).length, 2);
+  assert.equal(store.pendingOps().length, 0);
+});
 ```
 
 - [ ] **Step 2: 실패 확인**
@@ -405,14 +429,21 @@ export function createStore(storage) {
       if (!q.some(o => o.type === op.type && o.id === op.id && o.seq === op.seq)) write('relay.queue', [...q, op]);
     },
 
+    // pop-first인 이유: 스냅샷을 잡고 끝에 덮어쓰면 push가 await 중일 때 enqueue된 op이
+    // 유실되고, op을 큐에 남겨둔 채 push하면 같은 세션의 진행 중 갱신이 dedupe에 막힘.
     async drain(push) {
-      let q = store.pendingOps();
-      while (q.length) {
-        try { await push(q[0], store); } catch { break; } // 실패 시 중단 — 다음 drain에서 재시도
-        q = q.slice(1);
-        write('relay.queue', q);
+      for (;;) {
+        const q = store.pendingOps();
+        if (!q.length) return 0;
+        const op = q[0];
+        write('relay.queue', q.slice(1));
+        try { await push(op, store); }
+        catch { // 실패: op을 앞에 복원하고 중단 — 다음 drain에서 재시도
+          const rest = store.pendingOps().filter(o => !(o.type === op.type && o.id === op.id && o.seq === op.seq));
+          write('relay.queue', [op, ...rest]);
+          return store.pendingOps().length;
+        }
       }
-      return q.length;
     },
   };
   return store;
@@ -422,7 +453,7 @@ export function createStore(storage) {
 - [ ] **Step 4: 통과 확인**
 
 Run: `node --test test/`
-Expected: PASS — helpers 8 + store 7, 0 fail
+Expected: PASS — helpers 7 + store 9, 0 fail
 
 - [ ] **Step 5: Commit**
 
