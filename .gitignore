@@ -1,3 +1,8 @@
 node_modules/
 *.log
 .DS_Store
+.playwright-mcp/
+.superpowers/
+실시간 번역 웹사이트 디자인/*.zip
+실시간 번역 웹사이트 디자인/.thumbnail
+실시간 번역 웹사이트 디자인/uploads/
