@@ -55,14 +55,21 @@ export function createStore(storage) {
       if (!q.some(o => o.type === op.type && o.id === op.id && o.seq === op.seq)) write('relay.queue', [...q, op]);
     },
 
+    // pop-first인 이유: 스냅샷을 잡고 끝에 덮어쓰면 push가 await 중일 때 enqueue된 op이
+    // 유실되고, op을 큐에 남겨둔 채 push하면 같은 세션의 진행 중 갱신이 dedupe에 막힘.
     async drain(push) {
-      let q = store.pendingOps();
-      while (q.length) {
-        try { await push(q[0], store); } catch { break; } // 실패 시 중단 — 다음 drain에서 재시도
-        q = q.slice(1);
-        write('relay.queue', q);
+      for (;;) {
+        const q = store.pendingOps();
+        if (!q.length) return 0;
+        const op = q[0];
+        write('relay.queue', q.slice(1));
+        try { await push(op, store); }
+        catch { // 실패: op을 앞에 복원하고 중단 — 다음 drain에서 재시도
+          const rest = store.pendingOps().filter(o => !(o.type === op.type && o.id === op.id && o.seq === op.seq));
+          write('relay.queue', [op, ...rest]);
+          return store.pendingOps().length;
+        }
       }
-      return q.length;
     },
   };
   return store;

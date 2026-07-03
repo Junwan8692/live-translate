@@ -82,3 +82,27 @@ test('drain: 성공 시 비움, 실패 시 중단하고 잔여 보존', async ()
   assert.equal(pushed.length, 2);
   assert.equal(store.pendingOps().length, 0);
 });
+
+test('drain: push 도중 enqueue된 op 유실 없음', async () => {
+  const s = store.createSession();
+  const pushed = [];
+  let injected = false;
+  await store.drain(async op => {
+    pushed.push(op);
+    if (!injected) { injected = true; store.addSegment(s.id, { tsMs: 0, timeLabel: '14:02', originalText: 'a', translatedText: 'b', srcLang: null }); }
+  });
+  assert.ok(pushed.some(o => o.type === 'segment'));
+  assert.equal(store.pendingOps().length, 0);
+});
+
+test('drain: push 중 같은 세션이 갱신되면 op이 다시 큐에 들어가 재push됨', async () => {
+  const s = store.createSession();
+  const pushed = [];
+  let updated = false;
+  await store.drain(async op => {
+    pushed.push(op);
+    if (!updated) { updated = true; store.updateSession(s.id, { title: 'mid-flight' }); }
+  });
+  assert.equal(pushed.filter(o => o.type === 'session' && o.id === s.id).length, 2);
+  assert.equal(store.pendingOps().length, 0);
+});
