@@ -1,6 +1,6 @@
 import { createStore } from './store.js';
 import { createEngine } from './engine.js';
-import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition } from './helpers.js';
+import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt } from './helpers.js';
 
 const $ = id => document.getElementById(id);
 export const store = createStore(localStorage);
@@ -234,5 +234,45 @@ $('api-key').addEventListener('change', e => {
 });
 
 $('back-link').onclick = () => { location.hash = '#/'; };
+
+// ---------- SAVE ----------
+const currentTxt = () => {
+  const s = store.getSession(currentId);
+  return toTxt(s, store.getSegments(currentId));
+};
+
+$('save-txt').onclick = () => {
+  const s = store.getSession(currentId);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([currentTxt()], { type: 'text/plain' }));
+  a.download = `relay-${(s.title || autoTitle(new Date(s.createdAt))).replaceAll(' ', '-')}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$('save-copy').onclick = async () => {
+  await navigator.clipboard.writeText(currentTxt());
+  $('save-copy').textContent = 'COPIED';
+  setTimeout(() => { $('save-copy').textContent = 'COPY'; }, 1200);
+};
+
+// ---------- 제목 인라인 rename ----------
+$('s-title').onclick = () => {
+  if ($('s-title').querySelector('input')) return;
+  const s = store.getSession(currentId);
+  const input = document.createElement('input');
+  input.value = s.title || '';
+  input.placeholder = autoTitle(new Date(s.createdAt));
+  input.style.cssText = 'font:inherit;width:100%;border:none;border-bottom:1px solid var(--ink);background:none;outline:none';
+  const commit = () => {
+    store.updateSession(currentId, { title: input.value.trim() || null });
+    queueChanged();
+    renderSession(currentId);
+  };
+  input.onblur = commit;
+  input.onkeydown = e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.onblur = null; renderSession(currentId); } };
+  $('s-title').replaceChildren(input);
+  input.focus();
+};
 
 route();
