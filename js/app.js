@@ -96,7 +96,7 @@ function renderSession(id) {
   const s = store.getSession(id);
   acc = s.elapsedMs; since = null; needFreshStart = false; autoScroll = true;
   // 레일 헤더
-  $('s-title').replaceChildren(document.createTextNode(s.title || autoTitle(new Date(s.createdAt))), dot());
+  renderTitle();
   const c = new Date(s.createdAt);
   $('s-meta').textContent = `${shortId(s.id)} · ${fmtDateHeader(c).split(' — ')[0]} ${timeLabel(c)}`;
   // 컨트롤 값 복원
@@ -116,6 +116,11 @@ function renderSession(id) {
 }
 
 function dot() { const d = document.createElement('span'); d.className = 'dot'; d.textContent = '.'; return d; }
+
+function renderTitle() {
+  const s = store.getSession(currentId);
+  $('s-title').replaceChildren(document.createTextNode(s.title || autoTitle(new Date(s.createdAt))), dot());
+}
 
 function appendSeg(seg) {
   for (const [col, text] of [['col-original', seg.originalText], ['col-translation', seg.translatedText]]) {
@@ -267,10 +272,10 @@ $('s-title').onclick = () => {
   const commit = () => {
     store.updateSession(currentId, { title: input.value.trim() || null });
     queueChanged();
-    renderSession(currentId);
+    renderTitle(); // 전체 renderSession 금지 — 청취 중 rename 시 상태 리셋(새로고침 복원 로직)이 라이브 엔진과 어긋남
   };
   input.onblur = commit;
-  input.onkeydown = e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.onblur = null; renderSession(currentId); } };
+  input.onkeydown = e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.onblur = null; renderTitle(); } };
   $('s-title').replaceChildren(input);
   input.focus();
 };
