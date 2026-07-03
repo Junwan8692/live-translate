@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live 번역기 — Gemini Live Translate</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background: #14161a; color: #e8eaed; height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: #1d2025; flex-wrap: wrap; }
+  input, select, button { font: inherit; padding: 7px 10px; border-radius: 6px; border: 1px solid #3a3f47; background: #24282e; color: inherit; }
+  button { cursor: pointer; }
+  button:hover { background: #2f343c; }
+  #apiKey { width: 220px; }
+  #status { margin-left: auto; font-size: 0.85rem; color: #9aa0a6; }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 1.3fr; gap: 1px; background: #3a3f47; min-height: 0; }
+  section { background: #14161a; padding: 14px; overflow-y: auto; }
+  h2 { font-size: 0.8rem; color: #9aa0a6; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; position: sticky; top: -14px; background: #14161a; padding: 4px 0; }
+  #inLog p, #inCur { color: #b8bcc2; font-size: 1rem; line-height: 1.6; margin-bottom: 10px; }
+  #outLog p, #outCur { color: #fff; font-size: 1.35rem; line-height: 1.65; margin-bottom: 12px; }
+  #inCur, #outCur { opacity: 0.6; }
+  .ts { font-size: 0.75rem; color: #6b7280; margin-right: 6px; }
+  label { font-size: 0.85rem; display: flex; align-items: center; gap: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <input id="apiKey" type="password" placeholder="Gemini API 키" autocomplete="off">
+  <select id="lang">
+    <option value="ko" selected>한국어 (ko)</option>
+    <option value="en">English (en)</option>
+    <option value="ja">日本語 (ja)</option>
+    <option value="zh-CN">中文 简体 (zh-CN)</option>
+    <option value="es">Español (es)</option>
+  </select>
+  <button id="micBtn">🎤 마이크 시작</button>
+  <button id="tabBtn">🖥️ 탭 오디오 시작</button>
+  <button id="stopBtn">■ 정지</button>
+  <label><input type="checkbox" id="playAudio"> 번역 음성 재생</label>
+  <button id="saveBtn">💾 기록 저장</button>
+  <span id="status">대기 중</span>
+</header>
+<main>
+  <section><h2>원문</h2><div id="inLog"></div><div id="inCur"></div></section>
+  <section><h2>번역</h2><div id="outLog"></div><div id="outCur"></div></section>
+</main>
+
+<script type="module">
+import { GoogleGenAI, Modality } from 'https://esm.run/@google/genai';
+
+const MODEL = 'gemini-3.5-live-translate-preview';
+const $ = id => document.getElementById(id);
+
+$('apiKey').value = localStorage.getItem('gemini-key') || '';
+$('apiKey').addEventListener('change', e => localStorage.setItem('gemini-key', e.target.value.trim()));
+
+let session = null, mediaStream = null, inCtx = null, outCtx = null;
+let running = false, nextPlayTime = 0, curIn = '', curOut = '';
+let gen = 0, flushTimer = null; // gen: 재시작 시 이전 세션의 늦은 onclose가 유령 재연결을 만드는 것 방지
+
+const setStatus = t => $('status').textContent = t;
+
+// ---------- 세션 ----------
+async function connect(key, myGen) {
+  const lang = $('lang').value; // 언어는 연결 시점에 고정됨 — 변경 시 세션을 다시 열어야 반영
+  const ai = new GoogleGenAI({ apiKey: key });
+  session = await ai.live.connect({
+    model: MODEL,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+      // echoTargetLanguage: 입력이 이미 목표 언어일 때 그대로 재발화할지 여부. 청취용이라 끔.
+      translationConfig: { targetLanguageCode: lang, echoTargetLanguage: false },
+    },
+    callbacks: {
+      onopen: () => setStatus(`연결됨 — 듣는 중 (→ ${lang})`),
+      onmessage: handleMessage,
+      onerror: e => setStatus('오류: ' + e.message),
+      onclose: () => { if (running && myGen === gen) { setStatus('재연결 중…'); setTimeout(() => { if (running && myGen === gen) connect(key, myGen).catch(e => setStatus('재연결 실패: ' + e.message)); }, 600); } },
+    },
+  });
+}
+
+// 언어 변경 → 현재 세션을 닫으면 onclose 재연결이 새 언어로 다시 붙음
+$('lang').addEventListener('change', () => { if (running) { flush(); try { session?.close(); } catch {} } });
+
+function handleMessage(msg) {
+  const c = msg.serverContent;
+  if (!c) return;
+  let gotText = false;
+  if (c.inputTranscription?.text) { curIn += c.inputTranscription.text; $('inCur').textContent = curIn; gotText = true; }
+  if (c.outputTranscription?.text) { curOut += c.outputTranscription.text; $('outCur').textContent = curOut; gotText = true; }
+  for (const p of c.modelTurn?.parts || []) if (p.inlineData?.data) playChunk(p.inlineData.data);
+  // 이 모델은 turnComplete를 보내지 않음 — 새 자막이 2.5초간 없으면 문단 확정
+  // (자막 없는 오디오 청크는 타이머를 재장전하면 안 됨 — 오디오는 자막보다 한참 뒤까지 흘러옴)
+  if (gotText) { clearTimeout(flushTimer); flushTimer = setTimeout(flush, 2500); }
+  for (const sec of document.querySelectorAll('section')) sec.scrollTop = sec.scrollHeight;
+}
+
+function flush() {
+  clearTimeout(flushTimer);
+  const ts = new Date().toTimeString().slice(0, 5);
+  if (curIn.trim()) appendP('inLog', ts, curIn.trim());
+  if (curOut.trim()) appendP('outLog', ts, curOut.trim());
+  curIn = curOut = '';
+  $('inCur').textContent = $('outCur').textContent = '';
+}
+
+function appendP(logId, ts, text) {
+  const p = document.createElement('p');
+  const span = document.createElement('span');
+  span.className = 'ts'; span.textContent = ts;
+  p.append(span, text);
+  $(logId).append(p);
+}
+
+// ---------- 오디오 입력 (16kHz PCM16, ~128ms 청크) ----------
+function pumpAudio() {
+  inCtx = new AudioContext({ sampleRate: 16000 });
+  const src = inCtx.createMediaStreamSource(mediaStream);
+  // ponytail: ScriptProcessor는 deprecated지만 AudioWorklet보다 훨씬 단순. 끊기면 Worklet으로 교체.
+  const proc = inCtx.createScriptProcessor(2048, 1, 1);
+  proc.onaudioprocess = e => {
+    if (!session) return;
+    const f32 = e.inputBuffer.getChannelData(0);
+    const i16 = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) i16[i] = Math.max(-1, Math.min(1, f32[i])) * 0x7fff;
+    session.sendRealtimeInput({ audio: { data: b64(i16.buffer), mimeType: 'audio/pcm;rate=16000' } });
+  };
+  src.connect(proc);
+  proc.connect(inCtx.destination); // ScriptProcessor는 destination 연결 없이는 동작 안 함(출력은 무음)
+}
+
+function b64(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// ---------- 오디오 출력 (24kHz PCM16) ----------
+function playChunk(b64data) {
+  if (!$('playAudio').checked) return;
+  if (!outCtx) outCtx = new AudioContext({ sampleRate: 24000 });
+  const bin = atob(b64data);
+  const f32 = new Float32Array(bin.length / 2);
+  for (let i = 0; i < f32.length; i++) {
+    const v = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8); // little-endian
+    f32[i] = (v >= 0x8000 ? v - 0x10000 : v) / 0x8000;
+  }
+  const buf = outCtx.createBuffer(1, f32.length, 24000);
+  buf.getChannelData(0).set(f32);
+  const src = outCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(outCtx.destination);
+  nextPlayTime = Math.max(nextPlayTime, outCtx.currentTime + 0.05);
+  src.start(nextPlayTime);
+  nextPlayTime += buf.duration;
+}
+
+// ---------- 시작/정지 ----------
+async function start(getStream, label) {
+  stopAll();
+  const key = $('apiKey').value.trim();
+  if (!key) return setStatus('API 키를 입력하세요 (aistudio.google.com/apikey)');
+  try {
+    mediaStream = await getStream();
+  } catch (e) {
+    return setStatus(label + ' 실패: ' + e.message);
+  }
+  const audioTrack = mediaStream.getAudioTracks()[0];
+  if (!audioTrack) { stopAll(); return setStatus('오디오 트랙 없음 — 탭 공유 시 "오디오 공유"를 체크하세요'); }
+  audioTrack.addEventListener('ended', stopAll);
+  running = true;
+  setStatus('연결 중…');
+  try {
+    await connect(key, ++gen);
+  } catch (e) {
+    stopAll();
+    return setStatus('연결 실패: ' + e.message);
+  }
+  pumpAudio();
+}
+
+function stopAll() {
+  running = false;
+  gen++;
+  try { session?.close(); } catch {}
+  session = null;
+  mediaStream?.getTracks().forEach(t => t.stop());
+  mediaStream = null;
+  inCtx?.close(); inCtx = null;
+  flush();
+  setStatus('정지됨');
+}
+
+$('micBtn').onclick = () => start(
+  () => navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }),
+  '마이크');
+$('tabBtn').onclick = () => start(
+  () => navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }),
+  '탭 오디오');
+$('stopBtn').onclick = stopAll;
+
+$('saveBtn').onclick = () => {
+  const lines = [];
+  const ins = $('inLog').children, outs = $('outLog').children;
+  const n = Math.max(ins.length, outs.length);
+  for (let i = 0; i < n; i++) {
+    if (ins[i]) lines.push('[원문] ' + ins[i].textContent);
+    if (outs[i]) lines.push('[번역] ' + outs[i].textContent, '');
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' }));
+  a.download = 'translate-' + new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-') + '.txt';
+  a.click();
+};
+
+setStatus('대기 중 — API 키 입력 후 마이크 또는 탭 오디오 시작');
+</script>
+</body>
+</html>
