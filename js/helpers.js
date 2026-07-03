@@ -17,11 +17,13 @@ export const fmtIndexMeta = s => {
 export const countWords = segs =>
   segs.reduce((n, g) => n + (g.originalText.trim() ? g.originalText.trim().split(/\s+/).length : 0), 0);
 
-// 상태머신: 디자인 README "State Management" 절의 전이만 허용
+// 상태머신: 디자인 README "State Management" 절의 전이 + ended→resume 재개(소프트 종료)
+// ended는 read-only가 기본이지만, resume으로 같은 세션에 이어 담기 허용 (End 오조작 복구용)
 const TRANSITIONS = {
   ready: { start: 'listening' },
   listening: { pause: 'paused', end: 'ended' },
   paused: { resume: 'listening', end: 'ended' },
+  ended: { resume: 'listening' },
 };
 export const transition = (status, action) => TRANSITIONS[status]?.[action] ?? null;
 

@@ -157,7 +157,8 @@ async function doAction(action) {
     if (action === 'start') { await engine.start(s.source); startTick(); }
     else if (action === 'pause') { engine.pause(); stopTick(); }
     else if (action === 'resume') {
-      if (needFreshStart) { await engine.start(s.source); needFreshStart = false; }
+      // ended에서 재개하면 End 때 스트림을 정리했으므로 fresh start 필요 (paused는 스트림 유지 → resume)
+      if (needFreshStart || s.status === 'ended') { await engine.start(s.source); needFreshStart = false; }
       else await engine.resume();
       startTick();
     }
@@ -168,7 +169,7 @@ async function doAction(action) {
   } finally {
     busy = false;
   }
-  store.updateSession(currentId, { status: next, elapsedMs: acc, ...(next === 'ended' ? { endedAt: Date.now() } : {}) });
+  store.updateSession(currentId, { status: next, elapsedMs: acc, ...(next === 'ended' ? { endedAt: Date.now() } : next === 'listening' ? { endedAt: null } : {}) });
   renderStatus(next);
   queueChanged();
 }
@@ -203,7 +204,7 @@ function renderControls(status) {
   if (status === 'ready') { mk('Start translation', 'btn-acc', () => doAction('start')); mk('End session', '', null, true); }
   else if (status === 'listening') { mk('❚❚ Pause', 'btn-ink-line', () => doAction('pause')); mk('End session', 'btn-acc-line', () => doAction('end')); }
   else if (status === 'paused') { mk('▶ Resume', 'btn-acc', () => doAction('resume')); mk('End session', 'btn-acc-line', () => doAction('end')); }
-  else { const n = document.createElement('div'); n.className = 'mono'; n.style.cssText = 'grid-column:1/-1;font-size:10px;color:var(--faint)'; n.textContent = 'SESSION ENDED — READ ONLY'; box.append(n); }
+  else { mk('▶ Resume session', 'btn-acc', () => doAction('resume')); box.firstChild.style.gridColumn = '1 / -1'; }
 }
 
 // ---------- 레일 컨트롤 이벤트 ----------

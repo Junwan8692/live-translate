@@ -36,7 +36,8 @@ test('transition: 디자인 명세 상태 전이만 허용', () => {
   assert.equal(transition('listening', 'end'), 'ended');
   assert.equal(transition('paused', 'end'), 'ended');
   assert.equal(transition('ready', 'end'), null);   // READY에서 End 비활성 (디자인 명세)
-  assert.equal(transition('ended', 'start'), null); // 종료 후 재시작 불가
+  assert.equal(transition('ended', 'resume'), 'listening'); // 소프트 종료: End 후 재개 가능
+  assert.equal(transition('ended', 'start'), null); // 종료 후 재시작은 resume만 (start 아님)
 });
 
 test('toTxt: 타임스탬프 + 원문/번역 쌍', () => {
