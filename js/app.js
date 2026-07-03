@@ -7,14 +7,14 @@ export const store = createStore(localStorage);
 
 // ---------- 라우터 ----------
 function route() {
+  if (currentId && store.getSession(currentId)?.status === 'listening') { engine.stop(); stopTick(); store.updateSession(currentId, { status: 'ready', elapsedMs: acc }); }
+  currentId = null;
   const m = location.hash.match(/^#\/s\/([0-9a-f-]{36})$/);
   if (m && store.getSession(m[1])) {
     $('view-main').hidden = true;
     $('view-session').hidden = false;
     renderSession(m[1]);
   } else {
-    if (currentId && store.getSession(currentId)?.status === 'listening') { engine.stop(); stopTick(); store.updateSession(currentId, { status: 'ready', elapsedMs: acc }); }
-    currentId = null;
     $('view-session').hidden = true;
     $('view-main').hidden = false;
     renderMain();
@@ -56,6 +56,7 @@ let currentId = null;
 let acc = 0, since = null, tick = null;   // 타이머: acc=누적ms, since=listening 시작 시각
 let needFreshStart = false;               // 소스 전환으로 스트림을 버린 뒤 resume 대신 start가 필요
 let autoScroll = true;
+let busy = false;                         // doAction 재진입 가드 (start await 중 더블클릭 방지)
 
 export function queueChanged() {}         // Task 10에서 동기화 drain으로 구현
 
@@ -142,9 +143,11 @@ $('scroll-region').addEventListener('scroll', () => {
 
 // ---------- 상태머신 ----------
 async function doAction(action) {
+  if (busy) return;
   const s = store.getSession(currentId);
   const next = transition(s.status, action);
   if (!next) return;
+  busy = true;
   try {
     if (action === 'start') { await engine.start(s.source); startTick(); }
     else if (action === 'pause') { engine.pause(); stopTick(); }
@@ -157,6 +160,8 @@ async function doAction(action) {
   } catch (e) {
     if (e.message !== 'NO_KEY') $('status-line').textContent = 'ERROR: ' + e.message.toUpperCase().slice(0, 60);
     return; // 상태 전이 취소
+  } finally {
+    busy = false;
   }
   store.updateSession(currentId, { status: next, elapsedMs: acc, ...(next === 'ended' ? { endedAt: Date.now() } : {}) });
   renderStatus(next);
