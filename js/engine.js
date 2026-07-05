@@ -119,8 +119,13 @@ export function createEngine(cb) {
       if (!track) { this.stop(); cb.onError('NO_AUDIO_TRACK'); throw new Error('NO_AUDIO_TRACK'); } // 탭 공유 시 "오디오 공유" 미체크
       track.addEventListener('ended', () => cb.onError('TRACK_ENDED')); // 사용자가 공유 중단 → app이 pause 처리
       running = true; paused = false;
-      await connect(key, ++gen);
-      pumpAudio();
+      try {
+        await connect(key, ++gen);
+        pumpAudio();
+      } catch (error) {
+        this.stop();                       // 연결 실패 뒤 마이크/탭 캡처가 남지 않게 정리
+        throw error;
+      }
     },
 
     pause() {

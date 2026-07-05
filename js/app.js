@@ -1,14 +1,153 @@
 import { createStore } from './store.js';
 import { createEngine } from './engine.js';
+import { createSync } from './sync.js';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt } from './helpers.js';
 
 const $ = id => document.getElementById(id);
 export const store = createStore(localStorage);
 
+// Gemini API 키: js/env.local.js(.gitignore)에 있으면 키 입력창 생략. 파일 없으면 localStorage 폴백.
+let envKey = '';
+import('./env.local.js').then(m => { envKey = m.GEMINI_KEY || ''; }).catch(() => {});
+
+// ---------- Supabase Auth + 동기화 ----------
+// 클라이언트 초기화는 route() 이후 모듈 하단에서 비동기로 수행 —
+// CDN(esm.run) 지연/행이 로컬 우선 기능(라우팅·번역·저장)을 막지 않게 한다.
+export let sb = null;
+let supabaseInitError = null;
+let currentUser = null;
+const isOAuthCallback = new URLSearchParams(location.search).has('code'); // PKCE 콜백 로드에서만 해시 복원 허용
+const GATED = !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY); // Supabase 설정 시 로그인해야 앱 진입 (LOCAL ONLY 개발 모드는 게이트 없음)
+let gateBypass = false;                    // Supabase 초기화 실패(오프라인 등) 시 로컬 열람용 우회
+
+function onSyncSessionsChanged() {
+  if (!currentId && /^#\/s\/[0-9a-f-]{36}$/.test(location.hash)) route();
+  else if (!location.hash || location.hash === '#/') renderMain();
+}
+
+function onSyncState({ pending, error, signedIn = true }) {
+  if (!currentId) return;
+  if (!signedIn) $('saved-at').textContent = pending ? `LOCAL SAVED · ${pending} PENDING — SIGN IN TO SYNC` : '';
+  else if (error) $('saved-at').textContent = `LOCAL SAVED · SYNC ERROR (${pending} PENDING)`;
+  else if (pending) $('saved-at').textContent = `LOCAL SAVED · ${pending} SYNC PENDING`;
+  else $('saved-at').textContent = 'SYNCED ' + new Date().toTimeString().slice(0, 8);
+}
+
+let sync = createSync({ client: null, store, onSessionsChanged: onSyncSessionsChanged, onState: onSyncState });
+
+export function queueChanged() {
+  sync.queueChanged();
+}
+
+function paintAuth(user) {
+  $('login-btn').disabled = !sb;
+  $('login-skip').hidden = !supabaseInitError;
+  const button = $('btn-signin');
+  if (!sb) {
+    button.textContent = supabaseInitError ? 'SYNC UNAVAILABLE' : 'LOCAL ONLY';
+    button.disabled = true;
+    button.title = supabaseInitError?.message || 'Supabase URL과 publishable key를 설정하면 Google 로그인을 사용할 수 있습니다.';
+    return;
+  }
+  button.disabled = false;
+  button.textContent = user ? `${(user.email || 'SIGNED IN').toUpperCase()} — SIGN OUT` : 'SIGN IN WITH GOOGLE';
+}
+
+async function renderAuth() {
+  if (!sb) {
+    paintAuth(null);
+    return null;
+  }
+  const { data, error } = await sb.auth.getSession();
+  currentUser = error ? null : data.session?.user ?? null;
+  paintAuth(currentUser);
+  return currentUser;
+}
+
+function restoreOAuthRoute() {
+  const returnHash = sessionStorage.getItem('relay.authReturnHash');
+  if (!returnHash) return;
+  sessionStorage.removeItem('relay.authReturnHash');
+  if (!isOAuthCallback) return; // 중단된 로그인 시도의 잔여 해시 — 소비만 하고 이동하지 않음 (교차 탭 SIGNED_IN 하이재킹 방지)
+  history.replaceState(null, '', `${location.pathname}${returnHash}`);
+  route();
+}
+
+let syncedUserId = null;
+async function syncForUser(user) {
+  if (!user || syncedUserId === user.id) return;
+  const lastUserId = localStorage.getItem('relay.lastUserId');
+  if (lastUserId && lastUserId !== user.id) {
+    store.clearLocal();                    // 다른 계정: 이전 계정 데이터 혼입/유출 방지
+    route();
+  }
+  localStorage.setItem('relay.lastUserId', user.id);
+  syncedUserId = user.id;
+  try {
+    if (!await sync.fullSync()) syncedUserId = null;
+  } catch (error) {
+    syncedUserId = null;                   // 래치 해제 — 다음 auth 이벤트에서 재시도
+    console.error('sync: fullSync 실패', error);
+  }
+}
+
+$('btn-signin').onclick = async () => {
+  if (!sb) return;
+  if (currentUser) {
+    const { error } = await sb.auth.signOut({ scope: 'local' }); // 이 기기만 로그아웃 — 다른 기기 세션 유지
+    if (error) alert('로그아웃 실패: ' + error.message);
+    else { currentUser = null; paintAuth(null); route(); } // currentUser를 선반영하므로 SIGNED_OUT 이벤트의 변화 감지가 못 잡음 — 여기서 직접 게이트 복귀
+    return;
+  }
+
+  sessionStorage.setItem('relay.authReturnHash', location.hash || '#/');
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: `${location.origin}${location.pathname}` },
+  });
+  if (error) {
+    sessionStorage.removeItem('relay.authReturnHash');
+    alert('Google 로그인 시작 실패: ' + error.message);
+  }
+};
+
+$('login-btn').onclick = () => $('btn-signin').onclick();
+$('login-skip').onclick = () => { gateBypass = true; route(); };
+
+function handleAuthChange(_event, session) {
+  // Auth 콜백 내부에서 다른 Supabase 호출을 직접 await하지 않고 다음 task로 넘긴다.
+  setTimeout(async () => {
+    const prevUserId = currentUser?.id ?? null;
+    currentUser = session?.user ?? null;
+    paintAuth(currentUser);
+    if ((currentUser?.id ?? null) !== prevUserId) route(); // 게이트 개폐는 유저가 바뀔 때만 — TOKEN_REFRESHED 등이 라이브 세션을 끊지 않게
+    if (!currentUser) {
+      syncedUserId = null;
+      return;
+    }
+    restoreOAuthRoute();
+    await syncForUser(currentUser);
+  }, 0);
+}
+
 // ---------- 라우터 ----------
 function route() {
-  if (currentId && store.getSession(currentId)?.status === 'listening') { engine.stop(); stopTick(); store.updateSession(currentId, { status: 'ready', elapsedMs: acc }); }
+  const outgoing = currentId && store.getSession(currentId);
+  if (outgoing && (outgoing.status === 'listening' || outgoing.status === 'paused')) {
+    engine.stop();                         // paused도 스트림을 보존하므로 화면 이탈 시 반드시 해제
+    stopTick();
+    store.updateSession(currentId, { status: 'ready', elapsedMs: acc });
+    queueChanged();
+  }
   currentId = null;
+  if (GATED && !currentUser && !gateBypass) { // 로그인 게이트 — 해시는 보존되어 로그인 후 원래 화면으로 이동
+    $('view-main').hidden = true;
+    $('view-session').hidden = true;
+    $('view-login').hidden = false;
+    return;
+  }
+  $('view-login').hidden = true;
   const m = location.hash.match(/^#\/s\/([0-9a-f-]{36})$/);
   if (m && store.getSession(m[1])) {
     $('view-main').hidden = true;
@@ -47,6 +186,7 @@ function renderMain() {
 
 $('btn-create').onclick = () => {
   const s = store.createSession();           // 중간 설정 화면 없이 즉시 세션 진입 (디자인 명세)
+  queueChanged();
   location.hash = `#/s/${s.id}`;
 };
 
@@ -57,13 +197,12 @@ let acc = 0, since = null, tick = null;   // 타이머: acc=누적ms, since=list
 let needFreshStart = false;               // 소스 전환으로 스트림을 버린 뒤 resume 대신 start가 필요
 let autoScroll = true;
 let busy = false;                         // doAction 재진입 가드 (start await 중 더블클릭 방지)
-
-export function queueChanged() {}         // Task 10에서 동기화 drain으로 구현
+const hydrationPromises = new Map();
 
 const elapsedNow = () => acc + (since ? Date.now() - since : 0);
 
 const engine = createEngine({
-  getKey: () => localStorage.getItem('gemini-key') || '',
+  getKey: () => envKey || localStorage.getItem('gemini-key') || '',
   getLang: () => $('lang').value,
   onStatus: () => {},                     // 상태 표시는 앱 상태머신이 담당
   onPartial({ original, translated }) {
@@ -72,6 +211,7 @@ const engine = createEngine({
     scrollBottom();
   },
   onSegment(g) {
+    if (!currentId) return;                // 라우트 이탈 뒤 도착한 늦은 flush — null 세션 기록/큐 오염 방지
     const seg = store.addSegment(currentId, {
       tsMs: elapsedNow(), timeLabel: timeLabel(new Date()), srcLang: null,
       originalText: g.originalText, translatedText: g.translatedText,
@@ -102,17 +242,42 @@ function renderSession(id) {
   // 컨트롤 값 복원
   $('lang').value = s.targetLang;
   setSourceUI(s.source);
-  // 전사 복원
+  renderTranscript(id);
+  $('saved-at').textContent = '';
+  renderStatus(s.status === 'listening' || s.status === 'paused' ? 'ready' : s.status); // 새로고침 복원 시 진행 중이던 세션은 ready로
+  if (s.status === 'listening' || s.status === 'paused')
+    store.updateSession(id, { status: 'ready' }); // 로컬 복구용 다운그레이드 — 원격 push 금지 (다른 기기의 라이브 세션 row 보호)
+  if (store.isRemoteSession(id)) void hydrateSegments(id); // ended뿐 아니라 모든 원격 세션 — 빈/스테일 전사 방지
+}
+
+function renderTranscript(id) {
   $('col-original').replaceChildren();
   $('col-translation').replaceChildren();
   store.getSegments(id).forEach(appendSeg);
   $('cur-original').textContent = '';
   $('cur-translation').replaceChildren($('caret'));
   updateStats();
-  $('saved-at').textContent = '';
-  renderStatus(s.status === 'listening' || s.status === 'paused' ? 'ready' : s.status); // 새로고침 복원 시 진행 중이던 세션은 ready로
-  if (s.status === 'listening' || s.status === 'paused') store.updateSession(id, { status: 'ready' });
   scrollBottom();
+}
+
+async function hydrateSegments(id) {
+  if (!store.isRemoteSession(id)) return true;
+  if (!sb) return store.hasSegments(id); // ponytail: 오프라인/미설정이면 로컬 캐시 유무로만 판단 — 완전성 검증 불가
+  if (hydrationPromises.has(id)) return hydrationPromises.get(id);
+
+  const before = store.getSegments(id).length;
+  const pending = sync.hydrateSegments(id)
+    .catch(error => { console.error('hydrate 실패', error); return false; })
+    .then(ok => {
+      if (currentId !== id) return ok;
+      if (ok && store.getSegments(id).length !== before) renderTranscript(id);
+      else if (!ok) $('status-line').textContent = currentUser
+        ? 'REMOTE TRANSCRIPT LOAD FAILED — REOPEN TO RETRY'
+        : 'SIGN IN TO LOAD THE REMOTE TRANSCRIPT';
+      return ok;
+    }).finally(() => hydrationPromises.delete(id));
+  hydrationPromises.set(id, pending);
+  return pending;
 }
 
 function dot() { const d = document.createElement('span'); d.className = 'dot'; d.textContent = '.'; return d; }
@@ -149,27 +314,39 @@ $('scroll-region').addEventListener('scroll', () => {
 // ---------- 상태머신 ----------
 async function doAction(action) {
   if (busy) return;
-  const s = store.getSession(currentId);
+  const actionId = currentId;
+  const s = store.getSession(actionId);
+  if (!s) return;
   const next = transition(s.status, action);
   if (!next) return;
   busy = true;
   try {
-    if (action === 'start') { await engine.start(s.source); startTick(); }
+    if (action === 'start') {
+      if (!await hydrateSegments(actionId)) return; // 원격 세션은 전사 하이드레이션 후에만 시작 — seq 충돌로 원격 전사 덮어쓰기 방지
+      if (currentId !== actionId) return;
+      await engine.start(s.source);
+      if (currentId !== actionId) { engine.stop(); return; }
+      startTick();
+    }
     else if (action === 'pause') { engine.pause(); stopTick(); }
     else if (action === 'resume') {
+      if (s.status !== 'paused' && !await hydrateSegments(actionId)) return; // paused는 이 기기가 라이브 작성자 — 캐시가 정본
+      if (currentId !== actionId) return;
       // ended에서 재개하면 End 때 스트림을 정리했으므로 fresh start 필요 (paused는 스트림 유지 → resume)
       if (needFreshStart || s.status === 'ended') { await engine.start(s.source); needFreshStart = false; }
       else await engine.resume();
+      if (currentId !== actionId) { engine.stop(); return; }
       startTick();
     }
     else if (action === 'end') { engine.stop(); stopTick(); }
   } catch (e) {
-    if (e.message !== 'NO_KEY') $('status-line').textContent = 'ERROR: ' + e.message.toUpperCase().slice(0, 60);
+    if (e.message !== 'NO_KEY' && currentId === actionId)
+      $('status-line').textContent = 'ERROR: ' + e.message.toUpperCase().slice(0, 60);
     return; // 상태 전이 취소
   } finally {
     busy = false;
   }
-  store.updateSession(currentId, { status: next, elapsedMs: acc, ...(next === 'ended' ? { endedAt: Date.now() } : next === 'listening' ? { endedAt: null } : {}) });
+  store.updateSession(actionId, { status: next, elapsedMs: acc, ...(next === 'ended' ? { endedAt: Date.now() } : next === 'listening' ? { endedAt: null } : {}) });
   renderStatus(next);
   queueChanged();
 }
@@ -282,3 +459,34 @@ $('s-title').onclick = () => {
 };
 
 route();
+paintAuth(null);                          // Supabase 초기화 전까지 LOCAL ONLY 표시
+
+if (SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) {
+  (async () => {
+    try {
+      const { createClient } = await import('https://esm.run/@supabase/supabase-js@2');
+      sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        auth: {
+          flowType: 'pkce',                // OAuth 콜백을 query로 받아 해시 라우터와 충돌 방지
+          detectSessionInUrl: true,
+          persistSession: true,
+          autoRefreshToken: true,
+        },
+      });
+    } catch (error) {
+      supabaseInitError = error;
+      console.error('Supabase client initialization failed:', error);
+      paintAuth(null);
+      return;
+    }
+    sync.dispose();
+    sync = createSync({ client: sb, store, onSessionsChanged: onSyncSessionsChanged, onState: onSyncState });
+    sb.auth.onAuthStateChange(handleAuthChange);
+    const user = await renderAuth();
+    if (user) {
+      route();                             // 게이트 해제 (INITIAL_SESSION 경로와 중복 호출은 무해)
+      restoreOAuthRoute();
+      await syncForUser(user);
+    }
+  })().catch(error => console.error('Supabase init 실패:', error));
+}

@@ -178,10 +178,12 @@ create policy "own segments" on segments for all
 
 - 인덱스 목록의 `41 MIN`/`612 WORDS`는 클라이언트 파생값 (별도 컬럼 불필요, 필요해지면 뷰로).
 
-### 5-3. 인증: **이메일 OTP(magic link) 단일 사용자**
+### 5-3. 인증: **Google OAuth + Supabase Auth**
 
-- 개인 도구 — 소셜 OAuth 설정 비용 불필요. 최초 1회 로그인 후 Supabase가 세션 자동 갱신.
-- 비로그인 상태에서도 앱은 localStorage만으로 완전 동작 (로그인 = 동기화 활성화 스위치).
+- 사용자는 Google 계정으로 신원을 확인하고, Supabase Auth가 앱용 세션/JWT를 발급한다.
+- DB 접근은 Supabase 세션의 `auth.uid()`를 사용하므로 기존 RLS 정책을 그대로 적용한다.
+- Google Client Secret은 Supabase Dashboard에만 저장하고 브라우저에는 Supabase publishable key만 둔다.
+- **로그인 게이트 (2026-07-04 UX 변경)**: Supabase가 설정된 배포에서는 로그인해야 앱 진입 (공개 URL 노출 대응). config가 비어 있으면(개발 LOCAL ONLY) 게이트 없이 완전 동작. Supabase 초기화 실패(오프라인) 시 'CONTINUE OFFLINE' 우회로 로컬 열람 가능.
 - anonymous sign-in은 기기 바뀌면 데이터 유실이라 배제.
 
 ### 5-4. 동기화 전략 (write-behind)
@@ -213,7 +215,7 @@ flush() ──▶ localStorage 즉시 반영 ──▶ syncQueue에 push
 ### Phase 2 — Supabase 연동 (7/9 ~ 7/12)
 
 1. 프로젝트 생성, 테이블+RLS 마이그레이션 (§5-2 SQL)
-2. 이메일 OTP 로그인 (레일 하단 or 메인 상단 바에 mono 링크 하나)
+2. Google OAuth 로그인 (Supabase Auth 경유, 메인 상단 바)
 3. write-behind 동기화 + 시작 시 병합, 오프라인 큐(`online` 이벤트 재시도)
 4. **완료 기준**: 브라우저/기기를 바꿔 로그인해도 세션 목록·전사 열람 가능, 동기화 실패분(네트워크 순단·토큰 만료)이 온라인 복귀 시 자동 반영
 
@@ -221,7 +223,7 @@ flush() ──▶ localStorage 즉시 반영 ──▶ syncQueue에 push
 
 | 항목 | 내용 | 비고 |
 |---|---|---|
-| 세션 이어보기 UX | ended 세션 읽기 전용 뷰 다듬기, 세그먼트 lazy 로드 | Phase 2 완충 |
+| 세션 이어보기 UX | ended 소프트 종료/재개 UX 다듬기, 세그먼트 lazy 로드 | Phase 2 완충 |
 | AudioWorklet 전환 | ScriptProcessor deprecated 대체 | 동작엔 지장 없음 |
 | session resumption | 재연결 시 resumption handle 사용해 문맥 연속성 | Live API 세션 시간 제한 대비 |
 | PWA 매니페스트 | 홈 화면 설치 + 오프라인 셸 | 출장 사용성 |

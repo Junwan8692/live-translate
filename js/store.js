@@ -3,6 +3,7 @@ export function createStore(storage) {
   const read = (k, fallback) => { const v = storage.getItem(k); return v ? JSON.parse(v) : fallback; };
   const write = (k, v) => storage.setItem(k, JSON.stringify(v));
   const sessions = () => read('relay.sessions', []);
+  const segmentsKey = id => `relay.segments.${id}`;
 
   const store = {
     listSessions: () => sessions().sort((a, b) => b.createdAt - a.createdAt),
@@ -12,6 +13,7 @@ export function createStore(storage) {
       const now = Date.now();
       const s = { id: crypto.randomUUID(), title: null, targetLang, source, status: 'ready', elapsedMs: 0, createdAt: now, endedAt: null, updatedAt: now };
       write('relay.sessions', [...sessions(), s]);
+      write(segmentsKey(s.id), []);
       store.enqueue({ type: 'session', id: s.id });
       return s;
     },
@@ -26,22 +28,40 @@ export function createStore(storage) {
       return all[i];
     },
 
-    getSegments: id => read(`relay.segments.${id}`, []),
+    hasSegments: id => storage.getItem(segmentsKey(id)) !== null,
+
+    getSegments: id => read(segmentsKey(id), []),
 
     addSegment(id, seg) {
       const segs = store.getSegments(id);
-      const full = { seq: segs.length + 1, ...seg };
-      write(`relay.segments.${id}`, [...segs, full]);
+      const full = { seq: (segs[segs.length - 1]?.seq ?? 0) + 1, ...seg }; // length가 아닌 마지막 seq 기준 — 원격 병합 캐시와의 충돌 방지
+
+      write(segmentsKey(id), [...segs, full]);
       store.enqueue({ type: 'segment', id, seq: full.seq });
       return full;
     },
 
-    setSegments: (id, segs) => write(`relay.segments.${id}`, segs),
+    setSegments: (id, segs) => write(segmentsKey(id), segs),
+
+    markRemoteSessions(ids) {
+      const known = new Set(read('relay.remoteSessions', []));
+      ids.forEach(id => known.add(id));
+      write('relay.remoteSessions', [...known]);
+    },
+
+    isRemoteSession: id => read('relay.remoteSessions', []).includes(id),
+
+    // 다른 계정 로그인 시 이전 계정 로컬 캐시 폐기 (프라이버시 + 타 계정 큐 op의 RLS 거부 방지)
+    clearLocal() {
+      sessions().forEach(s => storage.removeItem(segmentsKey(s.id)));
+      ['relay.sessions', 'relay.queue', 'relay.remoteSessions'].forEach(k => storage.removeItem(k));
+    },
 
     mergeRemoteSessions(remote) {
       const byId = new Map(sessions().map(s => [s.id, s]));
       for (const r of remote) {
         const l = byId.get(r.id);
+        if (l && (l.status === 'listening' || l.status === 'paused')) continue; // 이 기기에서 라이브 중인 세션은 원격 row가 못 덮음 — 엔진/스토어 desync 방지
         if (!l || r.updatedAt > l.updatedAt) byId.set(r.id, r);
       }
       write('relay.sessions', [...byId.values()]);

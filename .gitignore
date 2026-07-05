@@ -6,3 +6,6 @@ node_modules/
 실시간 번역 웹사이트 디자인/*.zip
 실시간 번역 웹사이트 디자인/.thumbnail
 실시간 번역 웹사이트 디자인/uploads/
+
+# 로컬 시크릿 (Gemini API 키 등) — 커밋 금지
+js/env.local.js

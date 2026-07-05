@@ -83,7 +83,7 @@ select:hover { border-color: var(--ink); }
 .playback-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .seg-ctl { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); margin-top: 10px; }
 .seg-ctl button { padding: 11px 0; font-size: 13px; color: var(--muted); background: var(--surface); }
-.seg-on { background: var(--ink); color: var(--on-accent); }
+.seg-ctl button.seg-on { background: var(--ink); color: var(--on-accent); } /* .seg-ctl button보다 특이성이 높아야 선택 상태가 보임 */
 #src-caption { margin-top: 8px; }
 #controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 #key-row { margin-top: 12px; }
@@ -124,6 +124,21 @@ select:hover { border-color: var(--ink); }
     <section class="index">
       <div class="mono index-label">INDEX — RECENT SESSIONS</div>
       <div id="idx-rows"></div>
+    </section>
+  </div>
+</div>
+<div id="view-login" hidden>
+  <div class="main-wrap">
+    <header class="topbar">
+      <span class="mono" style="letter-spacing:0.22em">RELAY — LIVE TRANSLATION</span>
+    </header>
+    <section class="hero">
+      <h1 class="hero-title">Relay<span class="dot">.</span></h1>
+      <p class="hero-desc">개인 세션 기록입니다. Google 계정으로 로그인하면 시작합니다.</p>
+      <div class="cta-row">
+        <button id="login-btn" class="btn btn-acc" style="padding:17px 36px;font-size:14px" disabled>Sign in with Google</button>
+        <button id="login-skip" class="mono" hidden style="font-size:9.5px;cursor:pointer">SYNC UNAVAILABLE — CONTINUE OFFLINE →</button>
+      </div>
     </section>
   </div>
 </div>

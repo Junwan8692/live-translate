@@ -18,6 +18,7 @@ test('createSession: 기본값과 uuid', () => {
   assert.equal(s.source, 'mic');
   assert.equal(s.title, null);
   assert.equal(store.getSession(s.id).id, s.id);
+  assert.equal(store.hasSegments(s.id), true);
 });
 
 test('listSessions: createdAt 내림차순', () => {
@@ -57,6 +58,41 @@ test('mergeRemoteSessions: updatedAt 최신 승리', () => {
   assert.equal(store.getSession(s.id).title, 'remote-new');
   store.mergeRemoteSessions([{ id: 'brand-new', title: null, targetLang: 'ko', source: 'mic', status: 'ended', elapsedMs: 0, createdAt: 1, endedAt: 2, updatedAt: 3 }]);
   assert.ok(store.getSession('brand-new'));
+});
+
+test('addSegment: seq는 length가 아니라 마지막 seq를 잇는다', () => {
+  const id = 'seq-id';
+  store.setSegments(id, [{ seq: 7, originalText: 'x', translatedText: 'y' }]);
+  assert.equal(store.addSegment(id, { originalText: 'a', translatedText: 'b' }).seq, 8);
+});
+
+test('mergeRemoteSessions: 라이브(listening/paused) 로컬 세션은 원격이 못 덮는다', () => {
+  const s = store.createSession();
+  store.updateSession(s.id, { status: 'listening' });
+  const local = store.getSession(s.id);
+  store.mergeRemoteSessions([{ ...local, status: 'ready', updatedAt: local.updatedAt + 99999 }]);
+  assert.equal(store.getSession(s.id).status, 'listening');
+});
+
+test('clearLocal: 세션/세그먼트/큐/원격표시를 모두 제거한다', () => {
+  const s = store.createSession();
+  store.addSegment(s.id, { originalText: 'a', translatedText: 'b' });
+  store.markRemoteSessions([s.id]);
+  store.clearLocal();
+  assert.equal(store.listSessions().length, 0);
+  assert.equal(store.pendingOps().length, 0);
+  assert.equal(store.hasSegments(s.id), false);
+  assert.equal(store.isRemoteSession(s.id), false);
+});
+
+test('원격 세션 표시와 빈 세그먼트 캐시를 구분한다', () => {
+  const id = 'remote-id';
+  assert.equal(store.isRemoteSession(id), false);
+  assert.equal(store.hasSegments(id), false);
+  store.markRemoteSessions([id]);
+  store.setSegments(id, []);
+  assert.equal(store.isRemoteSession(id), true);
+  assert.equal(store.hasSegments(id), true);
 });
 
 test('큐: create/update/addSegment가 op을 쌓고 중복은 제거', () => {

@@ -1,5 +1,7 @@
 # Relay 재구축 구현 계획 (Phase 1 + 2)
 
+> **2026-07-03 구현 변경:** Task 9 인증은 이메일 OTP가 아니라 Google OAuth를 Supabase Auth 경유로 사용한다. Task 9~11의 실제 구현은 `supabase/schema.sql`, `js/sync.js`, `js/app.js`, 설정 절차는 루트 `README.md`를 기준으로 한다. 아래 Task 9의 OTP 코드 예시는 실행하지 않는다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 검증된 Gemini Live 번역 엔진을 Relay 디자인(핸드오프 확정안 `2a`)의 2화면 SPA로 재구축하고, 세션/세그먼트를 localStorage 우선 + Supabase write-behind로 영속화한다.
@@ -26,7 +28,7 @@ D:\code\live-translate\
 ├── index.html          # SPA 셸: Relay CSS 토큰/스타일 + 두 뷰 마크업 + app.js 로드
 ├── legacy.html         # 기존 구현 보존본 (엔진 이식 원본)
 ├── js/
-│   ├── config.js       # MODEL, SUPABASE_URL, SUPABASE_ANON_KEY 상수
+│   ├── config.js       # MODEL, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY 상수
 │   ├── helpers.js      # 순수 포맷터 + 상태머신 + TXT 직렬화 (Node 테스트 대상)
 │   ├── store.js        # 세션/세그먼트 CRUD + localStorage 영속화 + 동기화 큐 (Node 테스트 대상)
 │   ├── engine.js       # Gemini Live 연결/오디오 (브라우저 전용, legacy.html에서 이식)
@@ -57,7 +59,7 @@ D:\code\live-translate\
 
 **Interfaces:**
 - Consumes: 없음 (첫 태스크)
-- Produces: `js/config.js`가 `export const MODEL = 'gemini-3.5-live-translate-preview'`, `export const SUPABASE_URL = ''`, `export const SUPABASE_ANON_KEY = ''` 을 내보냄. 이후 모든 태스크는 git 커밋 가능 상태를 전제.
+- Produces: `js/config.js`가 `export const MODEL = 'gemini-3.5-live-translate-preview'`, `export const SUPABASE_URL = ''`, `export const SUPABASE_PUBLISHABLE_KEY = ''` 을 내보냄. 이후 모든 태스크는 git 커밋 가능 상태를 전제.
 
 - [ ] **Step 1: git 초기화 및 .gitignore 작성**
 
@@ -89,7 +91,7 @@ Copy-Item index.html legacy.html
 // 모델명/Supabase 접속 정보 단일 정의처. Supabase 값은 Task 9에서 채움 — 비어 있으면 앱은 로컬 전용으로 동작.
 export const MODEL = 'gemini-3.5-live-translate-preview';
 export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_PUBLISHABLE_KEY = '';
 ```
 
 - [ ] **Step 4: 스모크 확인**
@@ -1250,10 +1252,10 @@ $('s-title').onclick = () => {
   const commit = () => {
     store.updateSession(currentId, { title: input.value.trim() || null });
     queueChanged();
-    renderSession(currentId);
+    renderTitle(); // 전체 renderSession 금지 — 청취 중 rename 시 상태 리셋(새로고침 복원 로직)이 라이브 엔진과 어긋남
   };
   input.onblur = commit;
-  input.onkeydown = e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.onblur = null; renderSession(currentId); } };
+  input.onkeydown = e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.onblur = null; renderTitle(); } };
   $('s-title').replaceChildren(input);
   input.focus();
 };
@@ -1275,7 +1277,7 @@ git commit -m "feat: txt export, clipboard copy, inline title rename"
 
 ---
 
-### Task 9: Supabase 스키마 + 클라이언트 + 이메일 OTP 로그인
+### Task 9: Supabase 스키마 + 클라이언트 + 이메일 OTP 로그인 (Google OAuth로 대체됨)
 
 **Files:**
 - Create: `supabase/schema.sql`
@@ -1329,57 +1331,30 @@ create policy "own segments" on public.segments for all
   with check (exists (select 1 from public.sessions s where s.id = session_id and s.user_id = auth.uid()));
 ```
 
-- [ ] **Step 2: HUMAN CHECKPOINT — Supabase 프로젝트 준비 (사용자 작업)**
+- [ ] **Step 2: HUMAN CHECKPOINT — Supabase + Google OAuth 준비**
 
-서브에이전트는 여기서 사용자에게 요청하고 대기:
-1. https://supabase.com 에서 프로젝트 생성 — 리전 **Seoul (ap-northeast-2)** (기획서 §7-7)
-2. SQL Editor에서 `supabase/schema.sql` 전체 실행
-3. Authentication > Providers > Email 활성 확인(기본값), Authentication > URL Configuration의 Redirect URLs에 `http://localhost:8787` 추가
-4. Settings > API의 **Project URL**과 **anon public key**를 `js/config.js`의 `SUPABASE_URL`/`SUPABASE_ANON_KEY`에 입력
+루트 `README.md`의 설정 순서를 따른다:
+1. Supabase 프로젝트 생성 후 `supabase/schema.sql` 실행
+2. Google Web OAuth Client 생성
+3. Google origin에 `http://localhost:8787`, redirect URI에 Supabase Auth callback 등록
+4. Supabase Google Provider에 Client ID/Secret 입력
+5. Project URL과 publishable key를 `js/config.js`에 입력
 
-- [ ] **Step 3: 클라이언트 초기화 + 로그인 UI** — app.js 상단(import들 다음)에 추가:
+- [ ] **Step 3: 클라이언트 초기화 + Google 로그인 UI**
 
-```js
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-
-export let sb = null;
-if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-  const { createClient } = await import('https://esm.run/@supabase/supabase-js@2');
-  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-}
-
-async function renderAuth() {
-  if (!sb) { $('btn-signin').textContent = 'LOCAL ONLY'; $('btn-signin').disabled = true; return; }
-  const { data: { user } } = await sb.auth.getUser();
-  $('btn-signin').textContent = user ? `${user.email.toUpperCase()} — SIGN OUT` : 'SIGN IN';
-}
-
-$('btn-signin').onclick = async () => {
-  const { data: { user } } = await sb.auth.getUser();
-  if (user) { await sb.auth.signOut(); renderAuth(); return; }
-  const email = prompt('로그인 이메일 (magic link 전송)');
-  if (!email) return;
-  const { error } = await sb.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: location.origin } });
-  alert(error ? '전송 실패: ' + error.message : '메일의 링크를 열면 로그인됩니다.');
-};
-
-sb?.auth.onAuthStateChange(() => { renderAuth(); fullSync(); }); // fullSync는 Task 10 — 그 전까지는 `renderAuth();`만
-renderAuth();
-```
-
-(Task 10 이전에 이 태스크만 단독 검증할 때는 `fullSync()` 호출 줄을 `renderAuth();`만으로 두고, Task 10에서 원복.)
+실제 구현은 `js/app.js`의 `Supabase Auth + 동기화` 절을 기준으로 한다. PKCE flow를 사용하고 OAuth 전후의 해시 경로를 `sessionStorage`로 보존한다.
 
 - [ ] **Step 4: 브라우저 검증**
 
 - [ ] config 비어 있을 때: 상단 바에 `LOCAL ONLY`, 나머지 기능 전부 정상 (콘솔 에러 0)
-- [ ] config 채운 후: `SIGN IN` 클릭 → 이메일 입력 → 수신 메일 링크 클릭 → 돌아오면 상단 바에 이메일 표시
-- [ ] `— SIGN OUT` 클릭 → `SIGN IN` 복귀
+- [ ] config 채운 후: `SIGN IN WITH GOOGLE` → Google 인증 → 원래 화면 복귀 + 이메일 표시
+- [ ] `— SIGN OUT` 클릭 → `SIGN IN WITH GOOGLE` 복귀
 
 - [ ] **Step 5: Commit**
 
 ```powershell
 git add supabase/schema.sql js/app.js js/config.js
-git commit -m "feat: supabase schema with RLS, client init, email OTP auth"
+git commit -m "feat: supabase schema, Google OAuth, and sync client"
 ```
 
 ---
@@ -1517,11 +1492,8 @@ git commit -m "feat: lazy-load remote segments for ended sessions"
 
 ## Self-Review 기록
 
-- **기획서 커버리지**: Phase 1(토큰 CSS T4 · 라우팅/세션 CRUD T5 · 엔진 T6 · 상태머신/타이머/전사 T7 · TXT/COPY/rename T8) / Phase 2(스키마+RLS+OTP T9 · write-behind/병합/재시도 T10 · 기기 간 열람 T11) — 기획서 §6의 두 완료 기준이 T7/T10/T11 검증 항목에 그대로 존재. Phase 3은 의도적 제외.
+- **기획서 커버리지**: Phase 1(토큰 CSS T4 · 라우팅/세션 CRUD T5 · 엔진 T6 · 상태머신/타이머/전사 T7 · TXT/COPY/rename T8) / Phase 2(스키마+RLS+Google OAuth T9 · write-behind/병합/재시도 T10 · 기기 간 열람 T11) — 기획서 §6의 두 완료 기준이 T7/T10/T11 검증 항목에 그대로 존재. Phase 3은 의도적 제외.
 - **의도적 단순화**: 인덱스 언어쌍은 v1에서 `AUTO→KO`(srcLang 미감지, 기획서 §7-2) · 오토스크롤 해제 시 푸터 문구는 `AUTO-SCROLL ON` 고정(동작은 해제됨) · 세션 삭제 기능 없음(기획서 범위 외).
 - **타입 일관성 확인**: `fmtIndexMeta(session)` 1-인자(T2 테스트=T5 사용처 일치) · `toTxt(session, segments)` 2-인자(T2=T8) · `drain(push(op, store))` 2-인자 콜백(T3 테스트=T10 pushOp) · Segment 필드 `{seq,tsMs,timeLabel,originalText,translatedText,srcLang}` (T3=T7=T10=T11) · DB 컬럼 snake_case 매핑은 T9 스키마=T10 어댑터=T11 hydrate 일치.
-
-
-
 
 
