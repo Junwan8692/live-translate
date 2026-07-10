@@ -25,7 +25,8 @@
 
 - Gemini API 키는 `js/env.local.js`(.gitignore됨)에 `export const GEMINI_KEY = '...'` 형태로 둔다.
   파일이 없으면 앱이 키 입력창을 띄우고 localStorage에 저장한다.
-  **이 파일은 절대 커밋하거나 배포 서버에 만들지 않는다** — 클라이언트 JS라 방문자 전원에게 노출된다.
+  **이 파일은 절대 커밋하지 않는다.** 배포 서버에는 Cloudflare Access로 사이트 전체를 보호한 경우에만 둔다
+  (`docs/DEPLOY.md` 4·6번) — Access 없이는 클라이언트 JS라 방문자 전원에게 노출된다.
 - `js/config.js`에는 Supabase publishable key만 둔다. service_role 키·Google Client Secret 금지.
 
 ## 동작 원칙
