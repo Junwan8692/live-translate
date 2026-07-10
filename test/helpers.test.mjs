@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortId, timeLabel, autoTitle, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt } from '../js/helpers.js';
+import { shortId, timeLabel, autoTitle, fmtTimer, fmtDateHeader, fmtIndexMeta, fmtCost, countWords, transition, toTxt } from '../js/helpers.js';
 
 const d = new Date(2026, 6, 3, 14, 2, 7); // 2026-07-03 14:02:07
 
@@ -20,9 +20,15 @@ test('fmtTimer: ms → HH:MM:SS', () => {
   assert.equal(fmtTimer(3661000), '01:01:01');
 });
 
-test('fmtIndexMeta: 날짜 · 언어쌍 · 분', () => {
+test('fmtIndexMeta: 날짜 · 언어쌍 · 분 · 비용', () => {
   const s = { createdAt: d.getTime(), targetLang: 'ko', elapsedMs: 41 * 60000 };
-  assert.equal(fmtIndexMeta(s), '07.03 · AUTO→KO · 41 MIN');
+  assert.equal(fmtIndexMeta(s), '07.03 · AUTO→KO · 41 MIN · ~$1.51');
+});
+
+test('fmtCost: 청취 시간 기반 상한 추정', () => {
+  assert.equal(fmtCost(0), '~$0.00');
+  assert.equal(fmtCost(10 * 60000), '~$0.37');   // 10분 × $0.0368
+  assert.equal(fmtCost(41 * 60000), '~$1.51');
 });
 
 test('countWords: 원문 단어 수 합', () => {

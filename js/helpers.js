@@ -1,4 +1,6 @@
 // 순수 헬퍼 — 브라우저/Node 공용. DOM/window 접근 금지.
+import { COST_PER_MIN_USD } from './config.js';
+
 const p2 = n => String(n).padStart(2, '0');
 
 export const shortId = id => id.replaceAll('-', '').slice(0, 8);
@@ -9,10 +11,11 @@ export const fmtTimer = ms => {
   return `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`;
 };
 export const fmtDateHeader = d => `${d.getFullYear()}.${p2(d.getMonth() + 1)}.${p2(d.getDate())} — SEOUL`;
+export const fmtCost = ms => `~$${(ms / 60000 * COST_PER_MIN_USD).toFixed(2)}`;
 export const fmtIndexMeta = s => {
   const c = new Date(s.createdAt);
   const mins = Math.round((s.elapsedMs || 0) / 60000);
-  return `${p2(c.getMonth() + 1)}.${p2(c.getDate())} · ${(s.srcLang || 'AUTO').toUpperCase()}→${s.targetLang.toUpperCase()} · ${mins} MIN`;
+  return `${p2(c.getMonth() + 1)}.${p2(c.getDate())} · ${(s.srcLang || 'AUTO').toUpperCase()}→${s.targetLang.toUpperCase()} · ${mins} MIN · ${fmtCost(s.elapsedMs || 0)}`;
 };
 export const countWords = segs =>
   segs.reduce((n, g) => n + (g.originalText.trim() ? g.originalText.trim().split(/\s+/).length : 0), 0);

@@ -4,3 +4,8 @@
 export const MODEL = 'gemini-3.5-live-translate-preview';
 export const SUPABASE_URL = 'https://dcnestmacaotvtwrbljh.supabase.co';
 export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_ziBJn-03QdskHRp8Q3ulLw_a-sidz1b';
+
+// Gemini 3.5 Live Translate 유료 등급 단가 (2026-07 공식 가격표).
+// 오디오 초당 25토큰: 입력 $3.50/1M + 출력 $21.00/1M → 입·출력 연속 시 분당 $0.0368.
+// 출력(번역 발화)이 없는 구간은 과금이 줄므로, 이 값으로 계산한 비용은 상한 추정치다.
+export const COST_PER_MIN_USD = 0.0368;
