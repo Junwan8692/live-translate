@@ -2,7 +2,7 @@ import { createStore } from './store.js';
 import { createEngine } from './engine.js';
 import { createSync } from './sync.js';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
-import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt } from './helpers.js';
+import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt, fmtCost } from './helpers.js';
 
 const $ = id => document.getElementById(id);
 export const store = createStore(localStorage);
@@ -238,7 +238,7 @@ function renderSession(id) {
   // 레일 헤더
   renderTitle();
   const c = new Date(s.createdAt);
-  $('s-meta').textContent = `${shortId(s.id)} · ${fmtDateHeader(c).split(' — ')[0]} ${timeLabel(c)}`;
+  $('s-meta').textContent = `${shortId(s.id)} · ${fmtDateHeader(c).split(' — ')[0]} ${timeLabel(c)} · ${fmtCost(s.elapsedMs || 0)}`;
   // 컨트롤 값 복원
   $('lang').value = s.targetLang;
   setSourceUI(s.source);
