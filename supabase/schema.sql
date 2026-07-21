@@ -94,3 +94,36 @@ create policy "allowlisted users read secrets"
   to authenticated
   using (exists (select 1 from public.allowed_emails a
                  where a.email = (auth.jwt() ->> 'email')));
+
+-- ---- 세션 녹음 (WS1) ----
+alter table public.sessions add column mode text not null default 'live'
+  check (mode in ('live', 'rec'));
+
+create table public.recordings (
+  session_id uuid not null references public.sessions on delete cascade,
+  seq        integer not null check (seq > 0),
+  start_ms   integer not null check (start_ms >= 0),
+  dur_ms     integer not null check (dur_ms >= 0),
+  path       text not null,
+  created_at timestamptz not null default now(),
+  primary key (session_id, seq)
+);
+
+alter table public.recordings enable row level security;
+create policy "users manage recordings in own sessions"
+  on public.recordings for all to authenticated
+  using (exists (select 1 from public.sessions s
+                 where s.id = session_id and s.user_id = auth.uid()))
+  with check (exists (select 1 from public.sessions s
+                      where s.id = session_id and s.user_id = auth.uid()));
+revoke all on table public.recordings from anon;
+grant select, insert, delete on table public.recordings to authenticated;
+
+-- Storage: private 버킷, 경로 1번째 폴더 = 본인 uid 인 파일만 접근
+insert into storage.buckets (id, name, public) values ('recordings', 'recordings', false);
+create policy "own recordings select" on storage.objects for select to authenticated
+  using (bucket_id = 'recordings' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "own recordings insert" on storage.objects for insert to authenticated
+  with check (bucket_id = 'recordings' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "own recordings delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'recordings' and (storage.foldername(name))[1] = auth.uid()::text);
