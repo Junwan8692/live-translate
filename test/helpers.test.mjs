@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortId, timeLabel, autoTitle, fmtTimer, fmtDateHeader, fmtIndexMeta, fmtCost, countWords, transition, toTxt } from '../js/helpers.js';
+import { shortId, timeLabel, autoTitle, fmtTimer, fmtDateHeader, fmtIndexMeta, fmtCost, countWords, transition, toTxt, findPart, transcriptToSegments } from '../js/helpers.js';
 
 const d = new Date(2026, 6, 3, 14, 2, 7); // 2026-07-03 14:02:07
 
@@ -51,4 +51,29 @@ test('toTxt: 타임스탬프 + 원문/번역 쌍', () => {
   assert.ok(txt.includes('[14:02]'));
   assert.ok(txt.includes('Hi'));
   assert.ok(txt.includes('안녕'));
+});
+
+test('findPart: tsMs가 속한 파트를 고른다', () => {
+  const parts = [{ seq: 1, startMs: 0 }, { seq: 2, startMs: 60000 }];
+  assert.equal(findPart(parts, 0).seq, 1);
+  assert.equal(findPart(parts, 59999).seq, 1);
+  assert.equal(findPart(parts, 60000).seq, 2);
+  assert.equal(findPart(parts, 999999).seq, 2);
+});
+
+test('findPart: 경계 — 첫 파트 이전이면 첫 파트, 빈 배열이면 null', () => {
+  assert.equal(findPart([{ seq: 1, startMs: 5000 }], 100).seq, 1);
+  assert.equal(findPart([], 100), null);
+});
+
+test('transcriptToSegments: 파트 오프셋 합산 + 정렬 + 클램프', () => {
+  const items = [
+    { startSec: 10, original: 'b', translated: 'B' },
+    { startSec: 2.5, original: 'a', translated: 'A' },
+    { startSec: -3, original: 'x', translated: 'X' },
+  ];
+  const segs = transcriptToSegments(items, 60000);
+  assert.deepEqual(segs.map(g => g.tsMs), [60000, 62500, 70000]);
+  assert.equal(segs[1].originalText, 'a');
+  assert.equal(segs[1].translatedText, 'A');
 });

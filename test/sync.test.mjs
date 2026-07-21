@@ -7,6 +7,7 @@ import {
   sessionToRow,
   segmentFromRow,
   segmentToRow,
+  recordingFromRow,
 } from '../js/sync.js';
 
 const memStorage = () => {
@@ -77,6 +78,7 @@ test('Supabase 행 매핑: camelCase와 snake_case를 왕복한다', () => {
     createdAt: Date.parse('2026-07-03T01:00:00.000Z'),
     endedAt: Date.parse('2026-07-03T01:01:00.000Z'),
     updatedAt: Date.parse('2026-07-03T01:01:00.000Z'),
+    mode: 'live',
   };
   assert.deepEqual(sessionFromRow(sessionToRow(session)), session);
 
@@ -202,4 +204,18 @@ test('drain: 영구 실패(RLS/제약) op은 버리고 뒤의 op을 계속 push�
   assert.ok(client.tables.sessions.some(row => row.id === good.id));
   assert.ok(!client.tables.sessions.some(row => row.id === bad.id));
   sync.dispose();
+});
+
+test('recordingFromRow: snake→camel', () => {
+  assert.deepEqual(
+    recordingFromRow({ session_id: 'x', seq: 2, start_ms: 100, dur_ms: 5000, path: 'u/x/2.m4a' }),
+    { seq: 2, startMs: 100, durMs: 5000, path: 'u/x/2.m4a' });
+});
+
+test('session row 왕복에 mode 포함, 구 행은 live 기본', () => {
+  const s = sessionFromRow({ id: 'a', title: null, target_lang: 'ko', source: 'mic',
+    status: 'ready', elapsed_ms: 0, created_at: '2026-07-21T00:00:00Z', ended_at: null,
+    updated_at: '2026-07-21T00:00:00Z' });
+  assert.equal(s.mode, 'live');
+  assert.equal(sessionToRow({ ...s, mode: 'rec' }).mode, 'rec');
 });

@@ -32,3 +32,18 @@ export const transition = (status, action) => TRANSITIONS[status]?.[action] ?? n
 
 export const toTxt = (session, segs) =>
   segs.map(g => `[${g.timeLabel}]\n원문: ${g.originalText}\n번역: ${g.translatedText}\n`).join('\n');
+
+// ---- 녹음/사후 전사 ----
+// parts: {seq, startMs} 오름차순. tsMs가 속한 파트(startMs<=tsMs인 마지막) 선택.
+export const findPart = (parts, tsMs) =>
+  parts.filter(p => p.startMs <= tsMs).at(-1) ?? parts[0] ?? null;
+
+// 배치 전사 응답 [{startSec, original, translated}] → 세그먼트 필드로 변환
+export const transcriptToSegments = (items, partStartMs) =>
+  items
+    .map(t => ({
+      tsMs: partStartMs + Math.max(0, Math.round((t.startSec || 0) * 1000)),
+      originalText: (t.original || '').trim(),
+      translatedText: (t.translated || '').trim(),
+    }))
+    .sort((a, b) => a.tsMs - b.tsMs);

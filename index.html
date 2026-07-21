@@ -101,6 +101,7 @@ select:hover { border-color: var(--ink); }
 #col-original p, #cur-original { font-family: var(--sans); font-size: 14.5px; line-height: 1.85; color: var(--text-2); margin-bottom: 20px; }
 #col-translation p, #cur-translation { font-family: var(--serif-kr); font-size: 16px; line-height: 1.95; color: var(--ink); margin-bottom: 22px; }
 .ts { font-family: var(--mono); font-weight: 500; font-size: 10.5px; color: var(--faint); margin-right: 10px; }
+.has-audio .ts { cursor: pointer; } .has-audio .ts:hover { color: var(--acc); }
 .partial { opacity: 0.65; }
 #caret:not([hidden]) { display: inline-block; width: 8px; height: 15px; background: var(--acc); vertical-align: -2px; margin-left: 2px; }
 .t-foot { display: flex; justify-content: space-between; border-top: 1px solid var(--hairline); padding-top: 12px; }
@@ -170,6 +171,14 @@ select:hover { border-color: var(--ink); }
         <div id="status-line" class="mono" style="font-size:10px">SOURCE LANGUAGE AUTO-DETECTED</div>
         <label class="playback-row mono" style="font-size:10px"><input type="checkbox" id="playback"> PLAY TRANSLATED AUDIO</label>
       </div>
+      <div class="rail-sec" id="mode-sec">
+        <div class="mono">MODE</div>
+        <div class="seg-ctl">
+          <button id="mode-live" class="seg-on">Live translate</button>
+          <button id="mode-rec">Record only</button>
+        </div>
+        <div id="mode-caption" class="mono" style="font-size:9.5px;color:var(--faint-2)">TRANSLATES IN REAL TIME + RECORDS</div>
+      </div>
       <div class="rail-sec">
         <div class="mono">SOURCE</div>
         <div class="seg-ctl">
@@ -187,6 +196,7 @@ select:hover { border-color: var(--ink); }
         </div>
       </div>
       <div class="rail-sec rail-save">
+        <button id="rec-retry" class="mono save-btn" hidden>RETRY UPLOAD</button>
         <button id="save-txt" class="mono save-btn">.TXT ↓</button>
         <button id="save-copy" class="mono save-btn">COPY</button>
         <div id="saved-at" class="mono" style="font-size:9.5px;color:var(--faint)"></div>
@@ -196,6 +206,10 @@ select:hover { border-color: var(--ink); }
       <div class="t-head"><!-- 하단 보더 ink 1px -->
         <div><span class="mono">ORIGINAL</span> <span id="hdr-src" class="mono" style="color:var(--acc)">● AUTO</span></div>
         <div><span class="mono">TRANSLATION</span> <span id="hdr-target" class="mono">KOREAN</span></div>
+      </div>
+      <div id="player-row" hidden style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--hairline);padding:10px 0">
+        <audio id="player" controls style="flex:1;height:34px"></audio>
+        <select id="player-part" hidden style="width:auto;margin-top:0"></select>
       </div>
       <div class="t-body" id="scroll-region">
         <div class="t-col t-col-src"><div id="col-original"></div><p id="cur-original" class="partial"></p></div>
