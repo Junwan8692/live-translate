@@ -149,6 +149,7 @@ function route() {
   if (outgoing && (outgoing.status === 'listening' || outgoing.status === 'paused')) {
     engine.stop();                         // paused도 스트림을 보존하므로 화면 이탈 시 반드시 해제
     stopRecording();
+    void keepAwake(false);
     stopTick();
     store.updateSession(currentId, { status: 'ready', elapsedMs: acc });
     queueChanged();
@@ -211,6 +212,20 @@ let needFreshStart = false;               // 소스 전환으로 스트림을 �
 let autoScroll = true;
 let busy = false;                         // doAction 재진입 가드 (start await 중 더블클릭 방지)
 const hydrationPromises = new Map();
+
+// 모바일: 화면이 꺼지면 iOS는 마이크 캡처를 중단한다 — listening 동안 화면 유지
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+    else { await wakeLock?.release(); wakeLock = null; }
+  } catch {} // 저전력 모드 등 거부는 무시 — 기능 저하일 뿐 오류 아님
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return; // 백그라운드 전환 시 브라우저가 자동 해제
+  const s = currentId && store.getSession(currentId);
+  if (s?.status === 'listening') void keepAwake(true);
+});
 
 const elapsedNow = () => acc + (since ? Date.now() - since : 0);
 
@@ -514,6 +529,7 @@ async function doAction(action) {
   }
   store.updateSession(actionId, { status: next, elapsedMs: acc, ...(next === 'ended' ? { endedAt: Date.now() } : next === 'listening' ? { endedAt: null } : {}) });
   renderStatus(next);
+  void keepAwake(next === 'listening');
   queueChanged();
 }
 
