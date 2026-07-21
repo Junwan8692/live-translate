@@ -148,7 +148,6 @@ function route() {
   if (outgoing && (outgoing.status === 'listening' || outgoing.status === 'paused')) {
     engine.stop();                         // paused도 스트림을 보존하므로 화면 이탈 시 반드시 해제
     stopRecording();
-    recStream?.getTracks().forEach(t => t.stop()); recStream = null;
     stopTick();
     store.updateSession(currentId, { status: 'ready', elapsedMs: acc });
     queueChanged();
@@ -238,6 +237,8 @@ function startRecording(stream) {
 function stopRecording() {
   if (activeRec && activeRec.state !== 'inactive') activeRec.stop();
   activeRec = null;
+  recStream?.getTracks().forEach(t => t.stop());  // REC 모드 원시 캡처도 함께 정리 (LIVE는 null — no-op)
+  recStream = null;
 }
 
 async function uploadPart(part) {
@@ -309,6 +310,7 @@ function renderSession(id) {
   $('mode-sec').hidden = !sb || !currentUser;
   recParts = 0;
   pendingUploads = pendingUploads.filter(p => p.sessionId === id);
+  $('rec-retry').hidden = !pendingUploads.length;
   void loadRecordings(id);
   renderTranscript(id);
   $('saved-at').textContent = '';
@@ -426,10 +428,10 @@ async function doAction(action) {
       if (s.mode === 'rec' && !store.getSegments(actionId).length) transcribePendingFor = actionId; // 업로드 완료 후 자동 전사
       if (s.mode !== 'rec') engine.stop();
       stopRecording();
-      recStream?.getTracks().forEach(t => t.stop()); recStream = null;
       stopTick();
     }
   } catch (e) {
+    stopRecording();
     if (e.message !== 'NO_KEY' && currentId === actionId)
       $('status-line').textContent = 'ERROR: ' + e.message.toUpperCase().slice(0, 60);
     return; // 상태 전이 취소
