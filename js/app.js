@@ -2,8 +2,9 @@ import { createStore } from './store.js';
 import { createEngine } from './engine.js';
 import { createSync } from './sync.js';
 import { createRecorder, recExt } from './recorder.js';
+import { transcribeAudio } from './transcribe.js';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
-import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt, fmtCost, findPart } from './helpers.js';
+import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt, fmtCost, findPart, transcriptToSegments } from './helpers.js';
 
 const $ = id => document.getElementById(id);
 export const store = createStore(localStorage);
@@ -302,7 +303,33 @@ function seekTo(tsMs) {
   if (!p) return;
   loadPart(parts.indexOf(p), Math.max(0, (tsMs - p.startMs) / 1000), true);
 }
-async function runTranscribe() {}
+let transcribing = false;
+async function runTranscribe(id) {
+  if (transcribing) return;
+  transcribePendingFor = null;
+  const s = store.getSession(id);
+  const key = envKey || remoteKey || localStorage.getItem('gemini-key') || '';
+  if (!s || !key) { if (currentId === id) { $('key-row').hidden = false; } return; }
+  transcribing = true;
+  if (currentId === id) $('status-line').textContent = 'TRANSCRIBING…';
+  try {
+    const recs = await sync.listRecordings(id);
+    for (const p of recs) {
+      const blob = await (await fetch(p.url)).blob();
+      const items = await transcribeAudio({ key, blob, mime: blob.type || 'audio/mp4', targetLang: s.targetLang });
+      for (const g of transcriptToSegments(items, p.startMs)) {
+        store.addSegment(id, { ...g, srcLang: null, timeLabel: timeLabel(new Date(s.createdAt + g.tsMs)) });
+      }
+    }
+    queueChanged();
+    if (currentId === id) { renderTranscript(id); $('status-line').textContent = 'TRANSCRIPT READY'; renderControls(store.getSession(id).status); }
+  } catch (error) {
+    console.error('사후 전사 실패', error);
+    if (currentId === id) $('status-line').textContent = 'TRANSCRIBE FAILED — PRESS TRANSCRIBE TO RETRY';
+  } finally {
+    transcribing = false;
+  }
+}
 
 const engine = createEngine({
   getKey: () => envKey || remoteKey || localStorage.getItem('gemini-key') || '',
@@ -517,7 +544,13 @@ function renderControls(status) {
   if (status === 'ready') { mk('Start translation', 'btn-acc', () => doAction('start')); mk('End session', '', null, true); }
   else if (status === 'listening') { mk('❚❚ Pause', 'btn-ink-line', () => doAction('pause')); mk('End session', 'btn-acc-line', () => doAction('end')); }
   else if (status === 'paused') { mk('▶ Resume', 'btn-acc', () => doAction('resume')); mk('End session', 'btn-acc-line', () => doAction('end')); }
-  else { mk('▶ Resume session', 'btn-acc', () => doAction('resume')); box.firstChild.style.gridColumn = '1 / -1'; }
+  else {
+    mk('▶ Resume session', 'btn-acc', () => doAction('resume'));
+    const s = store.getSession(currentId);
+    if (s?.mode === 'rec' && !store.getSegments(currentId).length)
+      mk('Transcribe', 'btn-acc-line', () => runTranscribe(currentId));
+    else box.firstChild.style.gridColumn = '1 / -1';
+  }
 }
 
 // ---------- 레일 컨트롤 이벤트 ----------
