@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortId, timeLabel, autoTitle, fmtTimer, fmtDateHeader, fmtIndexMeta, fmtCost, countWords, transition, toTxt, findPart, transcriptToSegments } from '../js/helpers.js';
+import { shortId, timeLabel, autoTitle, fmtTimer, fmtDateHeader, fmtIndexMeta, fmtCost, countWords, transition, toTxt, findPart, transcriptToSegments, downsampleTo16k } from '../js/helpers.js';
 
 const d = new Date(2026, 6, 3, 14, 2, 7); // 2026-07-03 14:02:07
 
@@ -76,4 +76,22 @@ test('transcriptToSegments: 파트 오프셋 합산 + 정렬 + 클램프', () =>
   assert.deepEqual(segs.map(g => g.tsMs), [60000, 62500, 70000]);
   assert.equal(segs[1].originalText, 'a');
   assert.equal(segs[1].translatedText, 'A');
+});
+
+test('downsampleTo16k: 16k 입력은 그대로', () => {
+  const f32 = new Float32Array([0.1, 0.2, 0.3]);
+  assert.equal(downsampleTo16k(f32, 16000), f32);
+});
+
+test('downsampleTo16k: 48k→16k는 1/3 길이 + 선형보간 값', () => {
+  const f32 = new Float32Array([0, 0.3, 0.6, 0.9, 1.2, 1.5]);
+  const out = downsampleTo16k(f32, 48000);
+  assert.equal(out.length, 2);
+  assert.ok(Math.abs(out[0] - 0) < 1e-6);
+  assert.ok(Math.abs(out[1] - 0.9) < 1e-6); // pos=3.0 → f32[3]
+});
+
+test('downsampleTo16k: 비정수 배율(44.1k)도 동작', () => {
+  const out = downsampleTo16k(new Float32Array(441), 44100);
+  assert.equal(out.length, 160);
 });

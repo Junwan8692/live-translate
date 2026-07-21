@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Relay — Live Translation</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#F6F3EC">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,500&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -95,6 +100,7 @@ select:hover { border-color: var(--ink); }
 
 .transcript { display: flex; flex-direction: column; padding: 36px 44px; height: 100vh; }
 .t-head { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--ink); padding-bottom: 12px; }
+#toggle-src { display: none; }
 .t-body { display: grid; grid-template-columns: 1fr 1fr; flex: 1; overflow-y: auto; min-height: 0; }
 .t-col { padding: 24px 32px 24px 0; }
 .t-col-dst { border-left: 1px solid var(--hairline); padding-left: 32px; }
@@ -105,6 +111,34 @@ select:hover { border-color: var(--ink); }
 .partial { opacity: 0.65; }
 #caret:not([hidden]) { display: inline-block; width: 8px; height: 15px; background: var(--acc); vertical-align: -2px; margin-left: 2px; }
 .t-foot { display: flex; justify-content: space-between; border-top: 1px solid var(--hairline); padding-top: 12px; }
+
+/* ---------- Mobile (≤720px) ---------- */
+@media (max-width: 720px) {
+  .main-wrap { padding: 24px 20px 48px; }
+  .hero-title { font-size: 64px; margin-top: 32px; }
+  .idx-title { font-size: 17px; }
+
+  /* 세션: 레일 상단 스택 + 전사 영역이 나머지 높이 */
+  .session-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; min-height: 100dvh; }
+  .rail { border-right: none; border-bottom: 1px solid var(--hairline); padding: 20px; }
+  .rail-sec { margin-top: 16px; padding-top: 14px; }
+  .rail-title { font-size: 24px; }
+  #timer { font-size: 22px; margin-top: 8px; }
+  .rail-save { margin-top: 16px; }
+  .transcript { padding: 16px 20px; height: auto; min-height: 0; }
+  .btn { padding: 14px 0; } /* 터치 타깃 ≥44px */
+  .seg-ctl button { padding: 13px 0; }
+
+  /* 전사: 번역 단독, SHOW ORIGINAL 토글로 전환 */
+  #toggle-src { display: inline; }
+  .t-head, .t-body { grid-template-columns: 1fr; }
+  .t-head > div:first-child { display: none; }
+  .t-col { padding: 16px 0; }
+  .t-col-src { display: none; }
+  .t-col-dst { border-left: none; padding-left: 0; }
+  .show-src .t-col-src { display: block; }
+  .show-src .t-col-dst { display: none; }
+}
 </style>
 </head>
 <body>
@@ -205,7 +239,8 @@ select:hover { border-color: var(--ink); }
     <main class="transcript">
       <div class="t-head"><!-- 하단 보더 ink 1px -->
         <div><span class="mono">ORIGINAL</span> <span id="hdr-src" class="mono" style="color:var(--acc)">● AUTO</span></div>
-        <div><span class="mono">TRANSLATION</span> <span id="hdr-target" class="mono">KOREAN</span></div>
+        <div><span class="mono">TRANSLATION</span> <span id="hdr-target" class="mono">KOREAN</span>
+          <button id="toggle-src" class="mono" style="float:right;cursor:pointer">SHOW ORIGINAL</button></div>
       </div>
       <div id="player-row" hidden style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--hairline);padding:10px 0">
         <audio id="player" controls style="flex:1;height:34px"></audio>

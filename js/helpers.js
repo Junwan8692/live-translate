@@ -47,3 +47,15 @@ export const transcriptToSegments = (items, partStartMs) =>
       translatedText: (t.translated || '').trim(),
     }))
     .sort((a, b) => a.tsMs - b.tsMs);
+
+// iOS 등이 AudioContext({sampleRate:16000})를 무시할 때의 선형보간 다운샘플 폴백
+export const downsampleTo16k = (f32, srcRate) => {
+  if (srcRate === 16000) return f32;
+  const ratio = srcRate / 16000;
+  const out = new Float32Array(Math.floor(f32.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const pos = i * ratio, lo = Math.floor(pos), hi = Math.min(lo + 1, f32.length - 1);
+    out[i] = f32[lo] + (f32[hi] - f32[lo]) * (pos - lo);
+  }
+  return out;
+};
