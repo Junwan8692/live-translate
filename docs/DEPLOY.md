@@ -45,8 +45,9 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-(User/경로는 실제 계정에 맞게. node 설치가 싫으면 ExecStart를
-`/usr/bin/python3 -m http.server 8787 --bind 127.0.0.1`로 대체해도 된다.)
+(User/경로는 실제 계정에 맞게. ⚠️ python `http.server`로 대체하지 말 것 —
+Cache-Control 헤더가 없어 Cloudflare가 js를 2시간 엣지 캐싱하고, 코드를 고쳐도
+방문자에겐 옛 버전이 서빙되는 문제가 실제로 발생했다. `-c-1`이 이를 막는다.)
 
 ```bash
 sudo systemctl daemon-reload
