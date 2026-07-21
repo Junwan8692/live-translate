@@ -52,8 +52,8 @@ export function queueChanged() {
 }
 
 function paintAuth(user) {
-  $('login-btn').disabled = !sb;
-  $('login-skip').hidden = !supabaseInitError;
+  $('login-btn').disabled = $('login-btn-m').disabled = !sb;
+  $('login-skip').hidden = $('login-skip-m').hidden = !supabaseInitError;
   const button = $('btn-signin');
   if (!sb) {
     button.textContent = supabaseInitError ? 'SYNC UNAVAILABLE' : 'LOCAL ONLY';
@@ -125,7 +125,12 @@ $('btn-signin').onclick = async () => {
 };
 
 $('login-btn').onclick = () => $('btn-signin').onclick();
-$('login-skip').onclick = () => { gateBypass = true; route(); };
+$('login-btn-m').onclick = async () => {
+  $('login-btn-m').classList.add('busy');
+  await $('btn-signin').onclick();       // 성공 시 OAuth 리다이렉트로 떠남 — 여기 도달하면 실패 경로
+  $('login-btn-m').classList.remove('busy');
+};
+$('login-skip').onclick = $('login-skip-m').onclick = () => { gateBypass = true; route(); };
 
 function handleAuthChange(_event, session) {
   // Auth 콜백 내부에서 다른 Supabase 호출을 직접 await하지 않고 다음 task로 넘긴다.
@@ -201,6 +206,36 @@ function renderMain() {
 $('btn-create').onclick = () => {
   const s = store.createSession();           // 중간 설정 화면 없이 즉시 세션 진입 (디자인 명세)
   queueChanged();
+  location.hash = `#/s/${s.id}`;
+};
+
+// ---------- 모바일 홈: 원탭 시작 시트 (Relay Mobile Final.dc) ----------
+const KO_LANGS = { ko: '한국어', en: '영어', ja: '일본어', 'zh-CN': '중국어', es: '스페인어' };
+let sheetMode = 'live';
+let autoStartId = null;                   // 시트에서 만든 세션 — renderSession이 진입 즉시 start
+function openSheet() {
+  const d = new Date();
+  $('sheet-date').textContent = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} — 자동 기록`;
+  $('sheet-mode-wrap').hidden = !sb || !currentUser; // 녹음 업로드처(Storage) 없으면 REC 선택 숨김
+  $('sheet').classList.add('open');
+}
+$('m-mic').onclick = openSheet;
+document.querySelectorAll('.m-chip').forEach(chip => { chip.onclick = openSheet; });
+$('sheet-scrim').onclick = () => $('sheet').classList.remove('open');
+$('sheet-mode').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    sheetMode = b.dataset.mode;
+    $('sheet-mode').dataset.mode = sheetMode;
+    $('sheet-mode-cap').textContent = sheetMode === 'live' ? '실시간으로 번역하며 녹음합니다' : '녹음만 — 종료 후 전사됩니다';
+  };
+});
+$('sheet-lang').onchange = () => { $('m-chip-lang').textContent = `자동 감지 → ${KO_LANGS[$('sheet-lang').value] || $('sheet-lang').value}`; };
+$('sheet-start').onclick = () => {
+  const rec = sheetMode === 'rec' && sb && currentUser;
+  const s = store.createSession({ targetLang: $('sheet-lang').value, mode: rec ? 'rec' : 'live' });
+  queueChanged();
+  $('sheet').classList.remove('open');
+  autoStartId = s.id;
   location.hash = `#/s/${s.id}`;
 };
 
@@ -289,6 +324,8 @@ async function loadRecordings(id) {
   recParts = Math.max(recParts, parts.at(-1)?.seq ?? 0);
   const row = $('player-row');
   row.hidden = !parts.length;
+  $('m-player').hidden = !parts.length;
+  paintPartLabel();
   $('scroll-region').classList.toggle('has-audio', !!parts.length);
   if (store.getSession(id)?.status === 'ended') renderControls('ended'); // 미전사 파트 여부 반영 (Transcribe 버튼)
   if (!parts.length) return;
@@ -357,6 +394,7 @@ const engine = createEngine({
   onPartial({ original, translated }) {
     $('cur-original').textContent = original;
     $('cur-translation').replaceChildren(document.createTextNode(translated), $('caret'));
+    setFocusPartial(original, translated);
     scrollBottom();
   },
   onSegment(g) {
@@ -367,6 +405,7 @@ const engine = createEngine({
     });
     store.updateSession(currentId, { elapsedMs: elapsedNow() });
     appendSeg(seg);
+    setFocusPartial('', '');               // 확정 세그먼트가 포커스 뷰의 '현재' 자리로 승격
     updateStats();
     $('saved-at').textContent = 'AUTO-SAVED ' + new Date().toTimeString().slice(0, 8);
     queueChanged();
@@ -400,20 +439,47 @@ function renderSession(id) {
   recParts = 0;
   $('rec-retry').hidden = !pendingUploads.some(p => p.sessionId === id); // 다른 세션 실패분은 보존 — RETRY는 전 세션 재시도
   void loadRecordings(id);
+  // 모바일 리더 초기화
+  readerTab = 'ko';
+  document.querySelectorAll('.mr-tab[data-tab]').forEach(x => x.classList.toggle('on', x.dataset.tab === 'ko'));
+  renderReaderHead(id);
+  closeEndSheet();
+  $('m-player').hidden = true;
+  $('mp-prog').style.width = '0';
+  $('mp-clock').textContent = '0:00 / 0:00';
+  paintPlayBtn();
   renderTranscript(id);
   $('saved-at').textContent = '';
   renderStatus(s.status === 'listening' || s.status === 'paused' ? 'ready' : s.status); // 새로고침 복원 시 진행 중이던 세션은 ready로
   if (s.status === 'listening' || s.status === 'paused')
     store.updateSession(id, { status: 'ready' }); // 로컬 복구용 다운그레이드 — 원격 push 금지 (다른 기기의 라이브 세션 row 보호)
   if (store.isRemoteSession(id)) void hydrateSegments(id); // ended뿐 아니라 모든 원격 세션 — 빈/스테일 전사 방지
+  focusDismissed = false;
+  if (autoStartId === id) {                 // 모바일 시트의 '녹음 시작' — 다크 포커스 뷰를 먼저 띄우고 연결
+    autoStartId = null;
+    $('f-state').textContent = '연결 중…';
+    $('f-lang-txt').textContent = s.mode === 'rec' ? '녹음만 — 종료 후 전사됩니다' : `자동 감지 → ${KO_LANGS[s.targetLang] || s.targetLang}`;
+    $('view-session').classList.add('focus-avail', 'focus-on');
+    focusAtBottom = true;
+    $('focus').classList.remove('scrolled');
+    focusScrollBottom();
+    doAction('start').then(() => {          // 키 없음/권한 거부 등으로 listening 실패 → 클래식 뷰로 폴백
+      const st = store.getSession(id)?.status;
+      if (currentId === id && st !== 'listening') paintFocus(st);
+    });
+  }
 }
 
 function renderTranscript(id) {
   $('col-original').replaceChildren();
   $('col-translation').replaceChildren();
+  $('f-list').replaceChildren();
+  $('mr-list').replaceChildren();
   store.getSegments(id).forEach(appendSeg);
+  paintReaderEmpty(id);
   $('cur-original').textContent = '';
   $('cur-translation').replaceChildren($('caret'));
+  setFocusPartial('', '');
   updateStats();
   scrollBottom();
 }
@@ -455,6 +521,8 @@ function appendSeg(seg) {
     p.append(ts, text);
     $(col).append(p);
   }
+  appendFocusSeg(seg);
+  appendReaderSeg(seg);
 }
 
 function updateStats() {
@@ -468,6 +536,247 @@ function scrollBottom() {
 $('scroll-region').addEventListener('scroll', () => {
   const el = $('scroll-region');
   autoScroll = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+});
+
+// ---------- 모바일 라이브 포커스 뷰 (Relay Mobile Final.dc — 03 라이브) ----------
+let focusDismissed = false;               // ◇ 버튼으로 리더 뷰 전환 — 세션 상태가 live를 벗어나면 리셋
+let endSheetOpen = false;                 // ■ 종료 후 다크 시트가 떠 있는 동안 오버레이 유지
+let focusAtBottom = true, focusPrefix = '녹음 중';
+{ // 웨이브 바 24개 — 디자인의 고정 높이/지연 값
+  const hs = [6, 10, 16, 22, 28, 20, 12, 24, 32, 26, 17, 10, 14, 22, 30, 21, 12, 8, 15, 25, 29, 18, 10, 7];
+  $('f-wave').replaceChildren(...hs.map((h, i) => {
+    const b = document.createElement('i');
+    b.style.height = h + 'px';
+    b.style.animationDelay = ((i % 7) * 0.12).toFixed(2) + 's';
+    return b;
+  }));
+}
+function focusScrollBottom(smooth = false) {
+  $('f-scroll').scrollTo({ top: $('f-scroll').scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+}
+$('f-scroll').addEventListener('scroll', () => {
+  const el = $('f-scroll');
+  focusAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  $('focus').classList.toggle('scrolled', !focusAtBottom);
+});
+$('f-pill').onclick = () => focusScrollBottom(true);
+$('f-pause').onclick = () => doAction(store.getSession(currentId)?.status === 'listening' ? 'pause' : 'resume');
+$('f-stop').onclick = () => {
+  endSheetOpen = true;                    // doAction 중 renderStatus('ended')가 오버레이를 내리지 않게 선세팅
+  doAction('end').then(() => {
+    if (store.getSession(currentId)?.status === 'ended') openEndSheet();
+    else endSheetOpen = false;
+  });
+};
+$('f-exit').onclick = () => { focusDismissed = true; paintFocus(store.getSession(currentId)?.status); };
+$('f-return').onclick = () => { focusDismissed = false; paintFocus(store.getSession(currentId)?.status); };
+$('f-cur').onclick = () => { $('f-cur-orig').hidden = !$('f-cur-orig').hidden; };
+
+function appendFocusSeg(seg) {
+  const d = document.createElement('div');
+  d.className = 'fseg';
+  const tx = document.createElement('div');
+  tx.className = 'ftx';
+  tx.textContent = seg.translatedText;
+  const orig = document.createElement('div');
+  orig.className = 'f-orig';
+  orig.hidden = true;
+  const label = document.createElement('b');
+  label.textContent = 'ORIGINAL';
+  const body = document.createElement('div');
+  body.textContent = seg.originalText;
+  orig.append(label, body);
+  d.append(tx, orig);
+  d.onclick = () => { orig.hidden = !orig.hidden; };
+  $('f-list').append(d);
+  if (focusAtBottom) focusScrollBottom();
+}
+
+function setFocusPartial(original, translated) {
+  $('f-cur').textContent = translated;
+  $('f-cur').hidden = !translated;
+  $('f-inner').classList.toggle('has-partial', !!translated);
+  $('f-cur-orig').lastElementChild.textContent = original;
+  if (!translated) $('f-cur-orig').hidden = true;
+  if (focusAtBottom) focusScrollBottom();
+}
+
+function paintFocus(status) {
+  const live = status === 'listening' || status === 'paused' || (status === 'ended' && endSheetOpen);
+  if (!live) focusDismissed = false;
+  const wasOn = $('view-session').classList.contains('focus-on');
+  $('view-session').classList.toggle('focus-avail', status === 'listening' || status === 'paused');
+  $('view-session').classList.toggle('focus-on', live && !focusDismissed);
+  if (!wasOn && live && !focusDismissed) { // 켜지는 순간: display:none 동안 렌더된 히스토리는 scrollTop 0 — 바닥으로
+    focusAtBottom = true;
+    $('focus').classList.remove('scrolled');
+    focusScrollBottom();
+  }
+  if (!live) return;
+  $('focus').classList.toggle('paused', status !== 'listening');
+  const rec = store.getSession(currentId)?.mode === 'rec';
+  focusPrefix = status === 'ended' ? '세션 종료됨' : status === 'paused' ? '일시정지됨' : '녹음 중';
+  $('f-state').textContent = `${focusPrefix} — ${fmtTimer(elapsedNow())}`;
+  $('f-pause').innerHTML = status === 'listening' ? svgPause('#EFE8DA') : svgPlay('#EFE8DA');
+  $('f-lang-txt').textContent = rec ? '녹음만 — 종료 후 전사됩니다' : `자동 감지 → ${KO_LANGS[$('lang').value] || $('lang').value}`;
+  $('f-hint').textContent = rec ? '종료하면 자동으로 전사·번역됩니다' : '↑ 스크롤 — 지난 내용 · 탭 — 원문';
+}
+
+// ---------- 라이브 종료 시트 (03 — 세션 종료됨) ----------
+function paintEndMode() {
+  const mode = store.getSession(currentId)?.mode || 'live';
+  $('end-mode').dataset.mode = mode;
+  $('end-mode-cap').textContent = (mode === 'live' ? '실시간으로 번역하며 녹음' : '녹음만 — 종료 후 전사') + ' · 다음 구간부터 적용';
+}
+function openEndSheet() {
+  endSheetOpen = true;
+  const s = store.getSession(currentId);
+  const n = store.getSegments(currentId).length;
+  $('end-summary').textContent = `${fmtTimer(s.elapsedMs || 0)} · ${s.mode === 'rec' && !n ? '녹음 저장됨 — 전사 중' : `${n}문장 저장됨`}`;
+  $('end-lang').value = s.targetLang;
+  $('end-mode-wrap').hidden = !sb || !currentUser;
+  paintEndMode();
+  $('end-set').classList.remove('open');
+  $('end-set-toggle').classList.remove('active');
+  paintFocus('ended');
+  $('end-layer').classList.add('open');
+}
+function closeEndSheet() {
+  endSheetOpen = false;
+  $('end-layer').classList.remove('open');
+}
+$('end-resume').onclick = () => {
+  closeEndSheet();
+  doAction('resume').then(() => {
+    const st = store.getSession(currentId)?.status;
+    if (currentId && st !== 'listening') paintFocus(st); // 재개 실패 → 리더 뷰로
+  });
+};
+$('end-view').onclick = () => { closeEndSheet(); paintFocus('ended'); renderTranscript(currentId); }; // 최신 상태(전사 완료분/빈 상태 안내) 반영
+$('end-set-toggle').onclick = () => {
+  $('end-set').classList.toggle('open');
+  $('end-set-toggle').classList.toggle('active');
+};
+$('end-lang').onchange = e => { $('lang').value = e.target.value; $('lang').dispatchEvent(new Event('change')); }; // 기존 언어 변경 경로 재사용
+$('end-mode').querySelectorAll('button').forEach(b => {
+  b.onclick = () => { switchMode(b.dataset.mode); paintEndMode(); };
+});
+
+// ---------- 모바일 세션 리더 (04 세션 열람) ----------
+let readerTab = 'ko';
+const mmss = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+function renderReaderHead(id) {
+  const s = store.getSession(id);
+  $('mr-title').replaceChildren(document.createTextNode(s.title || autoTitle(new Date(s.createdAt))), dot());
+  const c = new Date(s.createdAt);
+  $('mr-meta').textContent = `${shortId(s.id)} · ${fmtDateHeader(c).split(' — ')[0]} ${timeLabel(c)} · ${Math.round((s.elapsedMs || 0) / 60000)}분 · ${fmtCost(s.elapsedMs || 0)}`;
+}
+
+function appendReaderSeg(seg) {
+  $('mr-list').querySelector('.mr-empty')?.remove();
+  const row = document.createElement('div');
+  row.className = 'mr-row';
+  row.dataset.ts = seg.tsMs;
+  const ts = document.createElement('span');
+  ts.className = 'mr-ts';
+  ts.textContent = seg.timeLabel;
+  const body = document.createElement('div');
+  body.className = 'mr-body';
+  if (readerTab === 'both') {
+    const sub = document.createElement('span');
+    sub.className = 'mr-sub';
+    sub.textContent = seg.originalText;
+    body.append(sub);
+  }
+  const main = document.createElement('span');
+  main.className = 'mr-main';
+  main.textContent = readerTab === 'en' ? seg.originalText : seg.translatedText;
+  body.append(main);
+  row.append(ts, body);
+  row.onclick = () => { if (parts.length) seekTo(seg.tsMs); };
+  $('mr-list').append(row);
+}
+
+function renderReaderList(id) {
+  $('mr-list').replaceChildren();
+  store.getSegments(id).forEach(appendReaderSeg);
+  paintReaderEmpty(id);
+}
+
+// REC 종료 직후엔 전사가 백그라운드 진행 중 — 빈 화면 대신 상태를 알린다
+function paintReaderEmpty(id) {
+  if ($('mr-list').children.length) return;
+  const s = store.getSession(id);
+  if (!s) return;
+  const d = document.createElement('div');
+  d.className = 'mr-empty';
+  d.textContent = s.mode === 'rec' && s.status === 'ended'
+    ? '전사 중입니다 — 완료되면 자동으로 표시됩니다'
+    : '아직 기록이 없습니다';
+  $('mr-list').append(d);
+}
+
+document.querySelectorAll('.mr-tab[data-tab]').forEach(b => {
+  b.onclick = () => {
+    readerTab = b.dataset.tab;
+    document.querySelectorAll('.mr-tab[data-tab]').forEach(x => x.classList.toggle('on', x === b));
+    renderReaderList(currentId);
+  };
+});
+
+$('mr-copy').onclick = async () => {
+  const line = g => readerTab === 'en' ? g.originalText : readerTab === 'both' ? `${g.originalText}\n${g.translatedText}` : g.translatedText;
+  await navigator.clipboard.writeText(store.getSegments(currentId).map(g => `[${g.timeLabel}] ${line(g)}`).join('\n'));
+  $('mr-copy').textContent = '복사됨 ✓';
+  $('mr-copy').classList.add('copied');
+  setTimeout(() => { $('mr-copy').textContent = '전체 복사'; $('mr-copy').classList.remove('copied'); }, 1600);
+};
+
+$('mr-back').onclick = () => { location.hash = '#/'; };
+$('mr-resume').onclick = () => {         // 리더에서 이어서 진행 (디자인 외 추가 — ← 세션 줄 우측 pill)
+  const st = store.getSession(currentId)?.status;
+  void doAction(st === 'ready' ? 'start' : 'resume');
+};
+
+// #status-line 미러 — 전사 진행/오류만 리더에 표시
+new MutationObserver(() => {
+  const t = $('status-line').textContent;
+  const show = /TRANSCRIB|ERROR|FAILED|SIGN IN/.test(t);
+  $('mr-status').hidden = !show;
+  if (show) $('mr-status').textContent = t;
+}).observe($('status-line'), { childList: true });
+
+// 하단 플레이어 카드 — 숨겨진 <audio id="player">를 구동
+// 텍스트 글리프(▶/❚❚)는 원 안에서 중심이 안 맞아 디자인의 SVG 아이콘 사용
+const svgPlay = fill => `<svg width="15" height="15" viewBox="0 0 14 14" style="margin-left:2px"><path d="M3 1.5l9 5.5-9 5.5z" fill="${fill}"></path></svg>`;
+const svgPause = fill => `<svg width="14" height="14" viewBox="0 0 16 16"><rect x="3" y="2.5" width="3.4" height="11" rx="1.4" fill="${fill}"></rect><rect x="9.6" y="2.5" width="3.4" height="11" rx="1.4" fill="${fill}"></rect></svg>`;
+function paintPlayBtn() { $('mp-btn').innerHTML = $('player').paused ? svgPlay('#F6F2E9') : svgPause('#F6F2E9'); }
+function paintPartLabel() {
+  const i = +($('player-part').value || 0);
+  $('mp-part').textContent = `PART ${parts[i]?.seq ?? 1}${parts.length > 1 ? ' ▾' : ''}`;
+}
+$('mp-btn').onclick = () => {
+  const p = $('player');
+  if (!p.getAttribute('src')) { if (parts.length) loadPart(0, 0, true); return; }
+  if (p.paused) void p.play(); else p.pause();
+};
+$('mp-part').onclick = () => {
+  if (parts.length > 1) { loadPart((+($('player-part').value || 0) + 1) % parts.length); paintPartLabel(); }
+};
+$('player').addEventListener('play', paintPlayBtn);
+$('player').addEventListener('pause', paintPlayBtn);
+$('player').addEventListener('timeupdate', () => {
+  const p = $('player');
+  const dur = p.duration || 0;
+  $('mp-prog').style.width = dur ? `${p.currentTime / dur * 100}%` : '0%';
+  $('mp-clock').textContent = `${mmss(p.currentTime)} / ${mmss(dur)}`;
+  const engaged = !p.paused || p.currentTime > 0;
+  const base = parts[+($('player-part').value || 0)]?.startMs ?? 0;
+  const now = base + p.currentTime * 1000;
+  let active = null;
+  for (const row of $('mr-list').children) if (engaged && +row.dataset.ts <= now) active = row;
+  for (const row of $('mr-list').children) row.classList.toggle('on', row === active);
 });
 
 // ---------- 상태머신 ----------
@@ -537,7 +846,7 @@ async function doAction(action) {
   queueChanged();
 }
 
-function startTick() { since = Date.now(); tick = setInterval(() => { $('timer').textContent = fmtTimer(elapsedNow()); }, 500); }
+function startTick() { since = Date.now(); tick = setInterval(() => { const t = fmtTimer(elapsedNow()); $('timer').textContent = t; $('f-state').textContent = `${focusPrefix} — ${t}`; }, 500); }
 function stopTick() { if (since) acc += Date.now() - since; since = null; clearInterval(tick); $('timer').textContent = fmtTimer(acc); }
 
 function renderStatus(status) {
@@ -553,6 +862,7 @@ function renderStatus(status) {
   line.textContent = status === 'listening' ? (rec ? '● RECORDING — TRANSCRIPT AFTER END' : `● TRANSLATING TO ${langName}`) : 'SOURCE LANGUAGE AUTO-DETECTED';
   $('hdr-target').textContent = langName;
   renderControls(status);
+  paintFocus(status);
 }
 
 function renderControls(status) {

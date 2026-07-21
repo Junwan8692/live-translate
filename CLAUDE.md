@@ -42,5 +42,7 @@
   마커로 증분 전사 — 전사 안 된 파트만 처리.
 - 세그먼트 `tsMs`는 일시정지 제외 경과시간 — 녹음도 pause 시 같이 멈춰 오디오 시간축과 일치
   (타임스탬프 클릭 점프의 근거). 스펙: `docs/superpowers/specs/2026-07-21-recording-mobile-design.md`
+- 모바일(≤720px)은 전용 디자인(로그인/원탭 홈+시트/다크 포커스 뷰)으로 동작, 데스크톱 UI는 별개.
+  스펙: `docs/superpowers/specs/2026-07-21-mobile-final-design.md`
 - **배포 서버는 반드시 `http-server -c-1`** — python `http.server`는 Cache-Control 헤더가 없어
   Cloudflare가 js를 2시간 엣지 캐싱, "고쳤는데 옛날 동작" 문제가 재발한다.

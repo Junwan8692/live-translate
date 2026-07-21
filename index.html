@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,500&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,500;1,700;1,900&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;600;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
   --acc: #8C1A12;        /* 시작/재개 버튼, 라이브 상태, 타이틀 마침표, 캐럿 */
@@ -34,9 +34,9 @@
   --serif-kr: 'Noto Serif KR', serif;
   --mono: 'IBM Plex Mono', monospace;
 }
-* { box-sizing: border-box; margin: 0; }
+* { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
 body { background: var(--paper); color: var(--ink); font-family: var(--sans); }
-button { font: inherit; cursor: pointer; background: none; border: none; border-radius: 0; }
+button { font: inherit; cursor: pointer; background: none; border: none; border-radius: 0; -webkit-user-select: none; user-select: none; }
 .mono { font-family: var(--mono); font-weight: 500; text-transform: uppercase; letter-spacing: 0.16em; font-size: 10px; color: var(--muted); }
 /* 버튼 변형 — radius 2px는 버튼만, box-shadow 전면 금지 (디자인 README §Spacing/Misc) */
 .btn { font-family: var(--sans); font-weight: 500; font-size: 13px; padding: 13px 0; border-radius: 2px; transition: all 140ms ease; }
@@ -64,6 +64,35 @@ button { font: inherit; cursor: pointer; background: none; border: none; border-
 .idx-title { font-family: var(--serif-display); font-weight: 500; font-style: normal; font-size: 21px; }
 .idx-title-auto { color: var(--auto-title); font-weight: 400; }
 .idx-meta { font-size: 10.5px; color: var(--muted); }
+
+/* ---------- Mobile Final 디자인 공통 (Relay Mobile Final.dc) ---------- */
+@keyframes blink { 0%,55%{opacity:1} 60%,100%{opacity:.12} }
+@keyframes ring { 0%{transform:scale(1);opacity:.5} 100%{transform:scale(2.05);opacity:0} }
+@keyframes wave { 0%,100%{transform:scaleY(.3)} 50%{transform:scaleY(1)} }
+@keyframes segin { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:none} }
+@keyframes spin { to{transform:rotate(360deg)} }
+.mono-s { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+.blink-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); animation: blink 1.6s infinite; display: inline-block; flex: none; }
+
+/* ---------- Login view (모바일 최종안 — 전 뷰포트 공통) ---------- */
+.login-wrap { min-height: 100dvh; max-width: 480px; margin: 0 auto; padding: 82px 28px 58px; display: flex; flex-direction: column; justify-content: space-between; font-family: var(--serif-kr); }
+.login-bar { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--ink); padding-bottom: 12px; }
+.login-title { font-family: var(--serif-display); font-style: italic; font-weight: 900; font-size: 66px; line-height: 1; margin-top: 56px; }
+.login-desc { font-family: var(--serif-kr); font-size: 14px; line-height: 2; color: var(--text-2); margin-top: 22px; }
+.login-foot { display: flex; flex-direction: column; gap: 14px; }
+.g-btn { width: 100%; height: 56px; border-radius: 14px; background: var(--acc); color: var(--on-accent); font-weight: 700; font-size: 15px; box-shadow: 0 12px 28px rgba(139,33,23,.3); transition: transform .15s; }
+.g-btn:active { transform: scale(.97); }
+.g-btn[disabled] { opacity: .5; cursor: default; }
+.g-btn > span { display: flex; align-items: center; justify-content: center; gap: 11px; }
+.g-btn .g-busy { display: none; }
+.g-btn.busy .g-idle { display: none; }
+.g-btn.busy .g-busy { display: flex; }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(246,242,233,.35); border-top-color: #F6F2E9; animation: spin .8s linear infinite; flex: none; }
+.login-note { text-align: center; font-size: 12.5px; color: var(--text-2); }
+#login-skip { align-self: center; }
+
+/* 모바일 전용 요소 — 데스크톱 기본 숨김 */
+#m-home, .sheet-layer, #focus, #f-return, .m-only, #login-mobile, #m-reader { display: none; }
 
 /* ---------- Session view ---------- */
 .session-grid { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
@@ -115,29 +144,165 @@ select:hover { border-color: var(--ink); }
 /* ---------- Mobile (≤720px) ---------- */
 @media (max-width: 720px) {
   .main-wrap { padding: 24px 20px 48px; }
-  .hero-title { font-size: 64px; margin-top: 32px; }
   .idx-title { font-size: 17px; }
 
-  /* 세션: 레일 상단 스택 + 전사 영역이 나머지 높이 */
-  .session-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; min-height: 100dvh; }
-  .rail { border-right: none; border-bottom: 1px solid var(--hairline); padding: 20px; }
-  .rail-sec { margin-top: 16px; padding-top: 14px; }
-  .rail-title { font-size: 24px; }
-  #timer { font-size: 22px; margin-top: 8px; }
-  .rail-save { margin-top: 16px; }
-  .transcript { padding: 16px 20px; height: auto; min-height: 0; }
-  .btn { padding: 14px 0; } /* 터치 타깃 ≥44px */
-  .seg-ctl button { padding: 13px 0; }
+  /* 홈 — 원탭 시작 (데스크톱 hero 대체) */
+  .hero { display: none; }
+  .topbar { border-bottom: none; padding-bottom: 0; }
+  .topbar > span:first-child { display: none; }   /* RELAY — LIVE TRANSLATION 레이블 */
+  .topbar > span:last-child { flex: 1; display: flex; justify-content: space-between; align-items: baseline; }
+  .topbar .mono { font-size: 12px; }
+  .d-only { display: none; }
+  .m-only { display: inline; }
+  #m-home, .sheet, .index { font-family: var(--serif-kr); } /* 모바일 한글은 세리프로 통일 (로그인과 동일) */
+  #m-home { display: flex; flex-direction: column; align-items: center; gap: 18px; margin-top: 76px; } /* 링 파동(~2배 확장)이 상단 날짜/계정 줄에 안 닿게 */
+  .m-rings { position: relative; width: 96px; height: 96px; }
+  .m-rings .ring, .f-stop-wrap .ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--acc); animation: ring 2.4s ease-out infinite; }
+  .m-rings .r2, .f-stop-wrap .r2 { animation-delay: 1.2s; }
+  .m-mic { position: absolute; inset: 0; border-radius: 50%; background: var(--acc); display: flex; align-items: center; justify-content: center; box-shadow: 0 14px 30px rgba(139,33,23,.35); transition: transform .15s; }
+  .m-mic:active { transform: scale(.93); }
+  .m-mic-cap { text-align: center; display: flex; flex-direction: column; gap: 5px; }
+  .m-mic-cap b { font-weight: 700; font-size: 16.5px; color: var(--ink); }
+  .m-mic-cap span { font-size: 13px; color: var(--muted); }
+  .m-chips { display: flex; gap: 8px; }
+  .m-chip { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 8px 14px; font-size: 11.5px; font-weight: 600; color: var(--ink); background: var(--surface); transition: transform .15s; }
+  .m-chip:active { transform: scale(.95); }
+  .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); flex: none; }
+  .index { margin-top: 44px; }
+  .index-label { font-family: var(--serif-kr); font-size: 14px; font-weight: 700; letter-spacing: 0; color: var(--ink); }
+  .idx-row { grid-template-columns: 24px 1fr; grid-template-rows: auto auto; row-gap: 3px; padding: 14px 0; align-items: center; }
+  .idx-num { grid-row: 1 / 3; }
+  .idx-title { font-family: var(--serif-kr); font-weight: 700; font-size: 15px; font-style: normal; }
+  .idx-meta { grid-column: 2; }
 
-  /* 전사: 번역 단독, SHOW ORIGINAL 토글로 전환 */
-  #toggle-src { display: inline; }
-  .t-head, .t-body { grid-template-columns: 1fr; }
-  .t-head > div:first-child { display: none; }
-  .t-col { padding: 16px 0; }
-  .t-col-src { display: none; }
-  .t-col-dst { border-left: none; padding-left: 0; }
-  .show-src .t-col-src { display: block; }
-  .show-src .t-col-dst { display: none; }
+  /* 로그인 — 모바일 최종안 (데스크톱 로그인 대체) */
+  #login-desktop { display: none; }
+  #login-mobile { display: flex; }
+
+  /* 새 세션 바텀시트 */
+  .sheet-layer { display: block; position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+  .sheet-scrim { position: absolute; inset: 0; background: rgba(23,19,16,.45); opacity: 0; transition: opacity .35s; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 26px 26px 0 0; padding: 14px 22px calc(env(safe-area-inset-bottom, 0px) + 40px); box-shadow: 0 -12px 40px rgba(23,19,16,.25); transform: translateY(112%); transition: transform .5s cubic-bezier(.32,.72,.28,1); }
+  .sheet-layer.open { pointer-events: auto; }
+  .sheet-layer.open .sheet-scrim { opacity: 1; }
+  .sheet-layer.open .sheet { transform: none; }
+  .sheet-handle { width: 36px; height: 4px; border-radius: 99px; background: var(--border); margin: 0 auto 16px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; }
+  .sheet-head b { font-weight: 900; font-size: 18px; color: var(--ink); }
+  .sheet-label, #sheet-date, #sheet-mode-cap { display: block; font-family: var(--serif-kr); font-weight: 700; font-size: 13px; letter-spacing: .04em; color: var(--text-2); margin-bottom: 6px; }
+  #sheet-lang { margin: 0 0 16px; border-radius: 12px; padding: 13px 16px; background: var(--paper); font-weight: 600; font-size: 15px; }
+  .mode-ctl { position: relative; background: rgba(33,28,22,.07); border-radius: 12px; padding: 3px; height: 42px; display: flex; }
+  .mode-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); background: var(--surface); border-radius: 9px; box-shadow: 0 2px 6px rgba(33,28,22,.12); transition: transform .32s cubic-bezier(.3,.7,.3,1); }
+  .mode-ctl[data-mode="rec"] .mode-thumb { transform: translateX(100%); }
+  .mode-ctl button { flex: 1; z-index: 1; font-weight: 700; font-size: 12.5px; color: var(--muted); transition: color .3s; }
+  .mode-ctl[data-mode="live"] button[data-mode="live"], .mode-ctl[data-mode="rec"] button[data-mode="rec"] { color: var(--ink); }
+  #sheet-mode-cap { margin: 6px 0 22px; }
+  .sheet-start { width: 100%; height: 54px; border-radius: 14px; background: var(--acc); display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--on-accent); font-weight: 700; font-size: 15px; box-shadow: 0 10px 24px rgba(139,33,23,.3); transition: transform .15s; }
+  .sheet-start:active { transform: scale(.97); }
+  .sheet-start i { width: 8px; height: 8px; border-radius: 50%; background: var(--on-accent); }
+
+  /* 라이브 포커스 뷰 (다크) */
+  .focus-on #focus { display: flex; }
+  #focus, #f-pill, #f-return { font-family: var(--serif-kr); } /* 다크 뷰 한글도 세리프 통일 (모노 레이블은 개별 유지) */
+  #focus { position: fixed; inset: 0; z-index: 50; flex-direction: column; background: #121009; }
+  .f-head { display: flex; flex-direction: column; align-items: center; gap: 7px; padding-top: calc(env(safe-area-inset-top, 0px) + 26px); }
+  #f-state { font-family: var(--serif-kr); font-weight: 700; font-size: 15px; letter-spacing: .06em; color: rgba(239,232,218,.85); }
+  .f-lang { display: flex; align-items: center; gap: 7px; font-family: var(--serif-kr); font-weight: 600; font-size: 13px; letter-spacing: .03em; color: rgba(239,232,218,.55); }
+  .f-lang i { width: 6px; height: 6px; border-radius: 50%; background: #E4523A; animation: blink 1.3s infinite; flex: none; }
+  .f-hint { font-family: var(--serif-kr); font-size: 12px; letter-spacing: .03em; color: rgba(239,232,218,.45); margin-top: 2px; }
+  #f-scroll { flex: 1; overflow-y: auto; padding: 26px 28px 24px; margin-top: 8px; }
+  #f-inner { display: flex; flex-direction: column; justify-content: flex-end; min-height: 100%; }
+  .fseg { margin-bottom: 16px; cursor: pointer; }
+  .fseg .ftx { font-size: 14.5px; line-height: 1.7; color: rgba(239,232,218,.3); }
+  #f-list .fseg:nth-last-child(2) .ftx { color: rgba(239,232,218,.5); }
+  #f-list .fseg:last-child .ftx { font-family: var(--serif-kr); font-weight: 700; font-size: 22px; line-height: 1.65; color: #F2ECDF; animation: segin .5s both; }
+  .has-partial #f-list .fseg:last-child .ftx { font-family: inherit; font-weight: 400; font-size: 14.5px; line-height: 1.7; color: rgba(239,232,218,.5); animation: none; }
+  .has-partial #f-list .fseg:nth-last-child(2) .ftx { color: rgba(239,232,218,.3); }
+  #f-cur { font-family: var(--serif-kr); font-weight: 700; font-size: 22px; line-height: 1.65; color: #F2ECDF; cursor: pointer; }
+  .f-orig { margin-top: 10px; border-top: 1px solid rgba(239,232,218,.15); padding-top: 9px; animation: segin .4s both; }
+  .f-orig b { display: block; font-family: var(--mono); font-weight: 500; font-size: 8px; letter-spacing: .2em; color: rgba(228,82,58,.8); }
+  .f-orig div { font-size: 12.5px; line-height: 1.65; color: rgba(239,232,218,.55); margin-top: 5px; font-style: italic; }
+  .f-taphint { font-family: var(--serif-kr); font-size: 12px; letter-spacing: .03em; color: rgba(239,232,218,.45); margin-top: 14px; }
+  #f-pill { position: absolute; left: 50%; transform: translateX(-50%); bottom: 184px; display: flex; align-items: center; gap: 8px; background: #B33A28; border-radius: 999px; padding: 10px 18px; box-shadow: 0 12px 30px rgba(179,58,40,.5); opacity: 0; pointer-events: none; transition: opacity .35s; z-index: 5; color: #FDFBF6; font-weight: 700; font-size: 12.5px; }
+  #focus.scrolled #f-pill { opacity: 1; pointer-events: auto; }
+  #f-pill i, #f-return i { width: 7px; height: 7px; border-radius: 50%; background: #FDFBF6; animation: blink 1.3s infinite; flex: none; }
+  .f-wave { height: 36px; display: flex; align-items: center; justify-content: center; gap: 3px; margin-bottom: 10px; }
+  .f-wave i { width: 3px; border-radius: 2px; background: rgba(239,232,218,.35); animation: wave 1.1s ease-in-out infinite; transform-origin: center; }
+  #focus.paused .f-wave i, #focus.paused .f-lang i, #focus.paused .ring { animation-play-state: paused; }
+  .f-ctl { display: flex; align-items: center; justify-content: center; gap: 34px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 34px); }
+  .f-round { width: 52px; height: 52px; border-radius: 50%; border: 1px solid rgba(239,232,218,.25); display: flex; align-items: center; justify-content: center; color: #EFE8DA; font-size: 13px; transition: transform .15s; }
+  .f-round:active { transform: scale(.92); }
+  .f-stop-wrap { position: relative; width: 76px; height: 76px; }
+  .f-stop-wrap .ring { border-color: #C1442F; animation-duration: 2.2s; }
+  .f-stop-wrap .r2 { animation-delay: 1.1s; }
+  #f-stop { position: absolute; inset: 0; border-radius: 50%; background: #B33A28; display: flex; align-items: center; justify-content: center; box-shadow: 0 12px 32px rgba(179,58,40,.45); transition: transform .15s; }
+  #f-stop:active { transform: scale(.92); }
+  .f-diamond { width: 12px; height: 12px; border: 1.5px solid #EFE8DA; border-radius: 3px; transform: rotate(45deg); display: block; }
+  .focus-avail:not(.focus-on) #f-return { display: flex; }
+  #f-return { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); z-index: 45; align-items: center; gap: 8px; background: #B33A28; color: #FDFBF6; font-weight: 700; font-size: 12.5px; border-radius: 999px; padding: 10px 18px; box-shadow: 0 12px 30px rgba(179,58,40,.5); }
+
+  /* 세션 — 클래식 레일 대신 모바일 리더 뷰 (04 세션 열람) */
+  .session-grid { display: none; }
+  #m-reader { display: flex; flex-direction: column; height: 100dvh; font-family: var(--serif-kr); background: var(--paper); }
+  .mr-head { padding: calc(env(safe-area-inset-top, 0px) + 20px) 24px 0; }
+  .mr-top { display: flex; justify-content: space-between; align-items: center; }
+  #mr-back { padding: 0; font-family: var(--serif-kr); font-weight: 700; font-size: 13.5px; letter-spacing: .02em; text-transform: none; color: var(--text-2); }
+  #mr-resume { display: flex; align-items: center; gap: 6px; background: var(--acc); color: rgba(246,242,233,.78); font-family: var(--serif-kr); font-weight: 600; font-size: 13.5px; border-radius: 999px; padding: 5px 11px; box-shadow: 0 6px 14px rgba(139,33,23,.25); transition: transform .15s; }
+  #mr-resume:active { transform: scale(.95); }
+  #mr-resume i { width: 7px; height: 7px; border-radius: 50%; background: rgba(246,242,233,.7); }
+  .mr-title { font-family: var(--serif-display); font-style: italic; font-weight: 700; font-size: 26px; color: var(--ink); margin-top: 10px; }
+  #mr-meta { margin-top: 6px; font-size: 12px; color: var(--text-2); }
+  .mr-tabs { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-bottom: 14px; border-bottom: 1px solid rgba(33,28,22,.14); }
+  .mr-tab { border: 1px solid rgba(33,28,22,.18); border-radius: 999px; padding: 7px 14px; font-weight: 600; font-size: 12px; background: var(--surface); color: var(--ink); transition: all .25s; font-family: inherit; }
+  .mr-tab.on, #mr-copy.copied { background: var(--ink); color: var(--paper); }
+  #mr-copy { margin-left: auto; }
+  #mr-copy.copied { background: var(--acc); color: var(--on-accent); border-color: var(--acc); }
+  #mr-status { padding: 10px 24px 0; color: var(--acc); font-family: var(--mono); font-size: 12px; }
+  .mr-empty { padding: 48px 10px; text-align: center; color: var(--muted); font-size: 13.5px; line-height: 1.8; }
+  .mr-list { flex: 1; overflow-y: auto; padding: 16px 14px 140px; }
+  .mr-row { display: flex; gap: 11px; border-radius: 10px; padding: 8px 10px; cursor: pointer; transition: background .35s; }
+  .mr-row.on { background: #EFE7D2; }
+  .mr-ts { font-family: var(--mono); font-weight: 500; font-size: 10px; color: #B4AC9D; padding-top: 5px; flex: none; transition: color .3s; }
+  .mr-row.on .mr-ts { color: var(--acc); }
+  .mr-body { display: flex; flex-direction: column; gap: 4px; }
+  .mr-sub { font-size: 12px; line-height: 1.6; color: var(--muted); font-style: italic; }
+  .mr-main { font-size: 15px; line-height: 1.75; color: var(--ink); }
+  #m-player { position: fixed; left: 0; right: 0; bottom: 0; padding: 30px 16px calc(env(safe-area-inset-bottom, 0px) + 24px); background: linear-gradient(to top, #F6F2E9 62%, rgba(246,242,233,0)); z-index: 20; }
+  .mp-card { background: var(--surface); border: 1px solid rgba(33,28,22,.14); border-radius: 18px; padding: 14px 16px; box-shadow: 0 12px 32px rgba(33,28,22,.14); display: flex; align-items: center; gap: 14px; }
+  #mp-btn { width: 46px; height: 46px; border-radius: 50%; background: var(--acc); color: #F6F2E9; display: flex; align-items: center; justify-content: center; flex: none; box-shadow: 0 8px 18px rgba(139,33,23,.3); font-size: 14px; transition: transform .15s; }
+  #mp-btn:active { transform: scale(.9); }
+  .mp-track { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .mp-bar { height: 3px; border-radius: 99px; background: rgba(33,28,22,.12); overflow: hidden; }
+  #mp-prog { display: block; height: 100%; border-radius: 99px; background: var(--acc); width: 0; transition: width .25s linear; }
+  .mp-meta { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+  #mp-part { font: inherit; color: var(--muted); padding: 0; }
+
+  /* 라이브 종료 다크 시트 (03 — 세션 종료됨) */
+  #end-layer { position: absolute; inset: 0; z-index: 10; pointer-events: none; font-family: var(--serif-kr); }
+  #end-scrim { position: absolute; inset: 0; background: rgba(10,8,5,.55); opacity: 0; transition: opacity .35s; }
+  .end-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #211C17; border-radius: 26px 26px 0 0; padding: 14px 22px calc(env(safe-area-inset-bottom, 0px) + 40px); box-shadow: 0 -14px 44px rgba(0,0,0,.5); transform: translateY(112%); transition: transform .5s cubic-bezier(.32,.72,.28,1); }
+  #end-layer.open { pointer-events: auto; }
+  #end-layer.open #end-scrim { opacity: 1; }
+  #end-layer.open .end-sheet { transform: none; }
+  .sheet-handle.dark { background: rgba(239,232,218,.2); }
+  .end-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .end-head b { font-weight: 900; font-size: 18px; color: #EFE8DA; }
+  #end-summary { font-family: var(--serif-kr); font-size: 12px; color: rgba(239,232,218,.6); }
+  .end-note { font-family: var(--serif-kr); font-size: 12px; color: rgba(239,232,218,.5); margin-bottom: 18px; }
+  #end-resume { width: 100%; height: 54px; border-radius: 14px; background: #B33A28; display: flex; align-items: center; justify-content: center; gap: 9px; color: #FDFBF6; font-weight: 700; font-size: 15px; box-shadow: 0 10px 26px rgba(179,58,40,.35); transition: transform .15s; }
+  #end-resume:active { transform: scale(.97); }
+  .end-row { display: flex; gap: 10px; margin-top: 10px; }
+  .end-row button { flex: 1; height: 46px; border-radius: 12px; border: 1px solid rgba(239,232,218,.2); color: #EFE8DA; font-weight: 700; font-size: 13px; transition: border-color .25s; }
+  #end-set-toggle.active { border-color: rgba(228,82,58,.55); }
+  #end-set { max-height: 0; opacity: 0; overflow: hidden; transition: max-height .45s ease, opacity .4s ease; }
+  #end-set.open { max-height: 300px; opacity: 1; }
+  .end-label { display: block; font-weight: 600; font-size: 12px; color: rgba(239,232,218,.5); margin: 16px 0 6px; }
+  #end-lang { width: 100%; border: 1px solid rgba(239,232,218,.16); border-radius: 12px; padding: 13px 16px; background: rgba(239,232,218,.05); color: #EFE8DA; font: inherit; font-weight: 600; margin-top: 0; }
+  .mode-ctl.dark { background: rgba(239,232,218,.08); }
+  .mode-ctl.dark .mode-thumb { background: #38302A; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+  .mode-ctl.dark button { color: rgba(239,232,218,.45); }
+  .mode-ctl.dark[data-mode="live"] button[data-mode="live"], .mode-ctl.dark[data-mode="rec"] button[data-mode="rec"] { color: #EFE8DA; }
+  #end-mode-cap { font-family: var(--serif-kr); font-size: 12px; color: rgba(239,232,218,.5); margin-top: 6px; }
 }
 </style>
 </head>
@@ -156,14 +321,52 @@ select:hover { border-color: var(--ink); }
         <span class="mono" style="font-size:9.5px">DATE &amp; TIME LOGGED AUTOMATICALLY</span>
       </div>
     </section>
+    <section id="m-home">
+      <div class="m-rings">
+        <i class="ring"></i><i class="ring r2"></i>
+        <button id="m-mic" class="m-mic" aria-label="새 세션 시작">
+          <svg width="32" height="32" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="#F6F2E9"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" stroke="#F6F2E9" stroke-width="1.8" fill="none" stroke-linecap="round"></path><path d="M12 18v3.5" stroke="#F6F2E9" stroke-width="1.8" stroke-linecap="round"></path></svg>
+        </button>
+      </div>
+      <div class="m-mic-cap"><b>탭해서 녹음 시작</b><span>시작 전에 언어와 모드를 확인합니다</span></div>
+      <div class="m-chips">
+        <button class="m-chip"><span class="chip-dot"></span><span id="m-chip-lang">자동 감지 → 한국어</span></button>
+        <button class="m-chip">마이크</button>
+      </div>
+    </section>
     <section class="index">
-      <div class="mono index-label">INDEX — RECENT SESSIONS</div>
+      <div class="mono index-label"><span class="d-only">INDEX — RECENT SESSIONS</span><span class="m-only">최근 세션</span></div>
       <div id="idx-rows"></div>
     </section>
   </div>
+  <div id="sheet" class="sheet-layer">
+    <div id="sheet-scrim" class="sheet-scrim"></div>
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-head"><b>새 세션</b><span id="sheet-date" class="mono-s"></span></div>
+      <label class="sheet-label" for="sheet-lang">번역 언어</label>
+      <select id="sheet-lang">
+        <option value="ko" selected>한국어 — Korean</option>
+        <option value="en">English</option>
+        <option value="ja">Japanese — 日本語</option>
+        <option value="zh-CN">Chinese — 中文</option>
+        <option value="es">Spanish — Español</option>
+      </select>
+      <div id="sheet-mode-wrap">
+        <span class="sheet-label">모드</span>
+        <div id="sheet-mode" class="mode-ctl" data-mode="live">
+          <i class="mode-thumb"></i>
+          <button data-mode="live">실시간 번역</button>
+          <button data-mode="rec">녹음만</button>
+        </div>
+        <div id="sheet-mode-cap" class="mono-s">실시간으로 번역하며 녹음합니다</div>
+      </div>
+      <button id="sheet-start" class="sheet-start"><i></i>녹음 시작</button>
+    </div>
+  </div>
 </div>
 <div id="view-login" hidden>
-  <div class="main-wrap">
+  <div id="login-desktop" class="main-wrap">
     <header class="topbar">
       <span class="mono" style="letter-spacing:0.22em">RELAY — LIVE TRANSLATION</span>
     </header>
@@ -175,6 +378,24 @@ select:hover { border-color: var(--ink); }
         <button id="login-skip" class="mono" hidden style="font-size:9.5px;cursor:pointer">SYNC UNAVAILABLE — CONTINUE OFFLINE →</button>
       </div>
     </section>
+  </div>
+  <div id="login-mobile" class="login-wrap">
+    <div>
+      <div class="login-bar">
+        <span class="blink-dot"></span>
+        <span class="mono" style="letter-spacing:0.22em">RELAY — LIVE TRANSLATION</span>
+      </div>
+      <h1 class="login-title">Relay<span class="dot">.</span></h1>
+      <p class="login-desc">말하는 순간,<br>번역되어 기록 합니다.</p>
+    </div>
+    <div class="login-foot">
+      <button id="login-btn-m" class="g-btn" disabled>
+        <span class="g-idle"><span>Google로 시작하기</span></span>
+        <span class="g-busy"><span class="spinner"></span><span>Google에 연결 중…</span></span>
+      </button>
+      <div class="login-note">세션은 계정에 안전하게 저장되며 어느 기기에서든 열람됩니다</div>
+      <button id="login-skip-m" class="mono" hidden style="font-size:9.5px;cursor:pointer">SYNC UNAVAILABLE — CONTINUE OFFLINE →</button>
+    </div>
   </div>
 </div>
 <div id="view-session" hidden>
@@ -256,6 +477,91 @@ select:hover { border-color: var(--ink); }
       </div>
     </main>
   </div>
+  <div id="m-reader">
+    <div class="mr-head">
+      <div class="mr-top">
+        <button id="mr-back" class="mono">← 세션</button>
+        <button id="mr-resume"><i></i>이어서 녹음</button>
+      </div>
+      <div id="mr-title" class="mr-title"></div>
+      <div id="mr-meta" class="mono-s"></div>
+      <div class="mr-tabs">
+        <button data-tab="ko" class="mr-tab on">번역</button>
+        <button data-tab="en" class="mr-tab">원문</button>
+        <button data-tab="both" class="mr-tab">대역</button>
+        <button id="mr-copy" class="mr-tab">전체 복사</button>
+      </div>
+    </div>
+    <div id="mr-status" hidden></div>
+    <div id="mr-list" class="mr-list"></div>
+    <div id="m-player" hidden>
+      <div class="mp-card">
+        <button id="mp-btn" aria-label="재생/일시정지">▶</button>
+        <div class="mp-track">
+          <div class="mp-bar"><i id="mp-prog"></i></div>
+          <div class="mp-meta"><span id="mp-clock">0:00 / 0:00</span><button id="mp-part">PART 1</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="focus">
+    <div class="f-head">
+      <span id="f-state">녹음 중 — 00:00:00</span>
+      <span class="f-lang"><i></i><span id="f-lang-txt">자동 감지 → 한국어</span></span>
+      <span id="f-hint" class="f-hint">↑ 스크롤 — 지난 내용 · 탭 — 원문</span>
+    </div>
+    <div id="f-scroll">
+      <div id="f-inner">
+        <div id="f-list"></div>
+        <div id="f-cur" hidden></div>
+        <div id="f-cur-orig" class="f-orig" hidden><b>ORIGINAL</b><div></div></div>
+        <div class="f-taphint">탭하면 원문 표시</div>
+      </div>
+    </div>
+    <button id="f-pill"><i></i>라이브로 돌아가기 ↓</button>
+    <div id="f-wave" class="f-wave"></div>
+    <div class="f-ctl">
+      <button id="f-pause" class="f-round" aria-label="일시정지/재개">❚❚</button>
+      <div class="f-stop-wrap">
+        <i class="ring"></i><i class="ring r2"></i>
+        <button id="f-stop" aria-label="세션 종료"><svg width="21" height="21" viewBox="0 0 18 18"><rect x="2.5" y="2.5" width="13" height="13" rx="3.5" fill="#FDFBF6"></rect></svg></button>
+      </div>
+      <button id="f-exit" class="f-round" aria-label="전체 화면 보기"><span class="f-diamond"></span></button>
+    </div>
+    <div id="end-layer">
+      <div id="end-scrim"></div>
+      <div class="end-sheet">
+        <div class="sheet-handle dark"></div>
+        <div class="end-head"><b>세션 종료됨</b><span id="end-summary"></span></div>
+        <div class="end-note">기록이 자동 저장되었습니다 — 언제든 다시 열람할 수 있어요</div>
+        <button id="end-resume">▶ 이어서 녹음</button>
+        <div class="end-row">
+          <button id="end-set-toggle">설정 변경 ▾</button>
+          <button id="end-view">기록 보기 →</button>
+        </div>
+        <div id="end-set">
+          <label class="end-label" for="end-lang">번역 언어</label>
+          <select id="end-lang">
+            <option value="ko">한국어 — Korean</option>
+            <option value="en">English</option>
+            <option value="ja">Japanese — 日本語</option>
+            <option value="zh-CN">Chinese — 中文</option>
+            <option value="es">Spanish — Español</option>
+          </select>
+          <div id="end-mode-wrap">
+            <span class="end-label">모드</span>
+            <div id="end-mode" class="mode-ctl dark" data-mode="live">
+              <i class="mode-thumb"></i>
+              <button data-mode="live">실시간 번역</button>
+              <button data-mode="rec">녹음만</button>
+            </div>
+            <div id="end-mode-cap"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <button id="f-return"><i></i>라이브 뷰로 돌아가기</button>
 </div>
 <script type="module" src="js/app.js"></script>
 </body>
