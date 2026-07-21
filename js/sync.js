@@ -11,6 +11,7 @@ export const sessionFromRow = r => ({
   createdAt: Date.parse(r.created_at),
   endedAt: r.ended_at ? Date.parse(r.ended_at) : null,
   updatedAt: Date.parse(r.updated_at),
+  mode: r.mode ?? 'live',
 });
 
 export const sessionToRow = s => ({
@@ -23,6 +24,7 @@ export const sessionToRow = s => ({
   created_at: new Date(s.createdAt).toISOString(),
   ended_at: s.endedAt ? new Date(s.endedAt).toISOString() : null,
   updated_at: new Date(s.updatedAt).toISOString(),
+  mode: s.mode ?? 'live',
 });
 
 export const segmentFromRow = r => ({
@@ -42,6 +44,13 @@ export const segmentToRow = (sessionId, g) => ({
   original_text: g.originalText,
   translated_text: g.translatedText,
   src_lang: g.srcLang,
+});
+
+export const recordingFromRow = r => ({
+  seq: r.seq,
+  startMs: r.start_ms,
+  durMs: r.dur_ms,
+  path: r.path,
 });
 
 // Postgres 제약/권한 위반(22*/23*/42*)은 재시도해도 영원히 실패한다.
@@ -179,6 +188,34 @@ export function createSync({ client, store, onSessionsChanged = () => {}, onStat
     return true;
   }
 
+  // 녹음 파트 업로드 — write-behind 큐를 타지 않는다 (Blob은 localStorage에 못 담음).
+  // 실패 시 throw — 호출자(app)가 Blob을 들고 RETRY UPLOAD를 노출한다.
+  async function uploadRecording({ sessionId, seq, startMs, durMs, blob, mime, ext }) {
+    const { data: authData, error: authError } = await client.auth.getSession();
+    if (authError || !authData.session) throw authError ?? new Error('NOT_SIGNED_IN');
+    const path = `${authData.session.user.id}/${sessionId}/${seq}.${ext}`;
+    const { error: upErr } = await client.storage.from('recordings')
+      .upload(path, blob, { contentType: mime, upsert: true }); // upsert: 재시도 안전
+    if (upErr) throw upErr;
+    const { error: insErr } = await client.from('recordings')
+      .upsert({ session_id: sessionId, seq, start_ms: startMs, dur_ms: durMs, path },
+              { onConflict: 'session_id,seq' });
+    if (insErr) throw insErr;
+    return true;
+  }
+
+  async function listRecordings(sessionId) {
+    if (!client) return [];
+    const { data, error } = await client.from('recordings')
+      .select('*').eq('session_id', sessionId).order('seq');
+    if (error || !data?.length) return [];
+    const parts = data.map(recordingFromRow);
+    const { data: signed, error: sigErr } = await client.storage.from('recordings')
+      .createSignedUrls(parts.map(p => p.path), 3600);
+    if (sigErr) return [];
+    return parts.map((p, i) => ({ ...p, url: signed[i]?.signedUrl ?? null }));
+  }
+
   function dispose() {
     clearTimeout(drainTimer);
     window.removeEventListener('online', handleOnline);
@@ -189,5 +226,5 @@ export function createSync({ client, store, onSessionsChanged = () => {}, onStat
   }
 
   if (client) window.addEventListener('online', handleOnline);
-  return { queueChanged, fullSync, hydrateSegments, flush: drainQueue, dispose };
+  return { queueChanged, fullSync, hydrateSegments, uploadRecording, listRecordings, flush: drainQueue, dispose };
 }
