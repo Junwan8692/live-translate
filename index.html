@@ -170,6 +170,14 @@ select:hover { border-color: var(--ink); }
         <div id="status-line" class="mono" style="font-size:10px">SOURCE LANGUAGE AUTO-DETECTED</div>
         <label class="playback-row mono" style="font-size:10px"><input type="checkbox" id="playback"> PLAY TRANSLATED AUDIO</label>
       </div>
+      <div class="rail-sec" id="mode-sec">
+        <div class="mono">MODE</div>
+        <div class="seg-ctl">
+          <button id="mode-live" class="seg-on">Live translate</button>
+          <button id="mode-rec">Record only</button>
+        </div>
+        <div id="mode-caption" class="mono" style="font-size:9.5px;color:var(--faint-2)">TRANSLATES IN REAL TIME + RECORDS</div>
+      </div>
       <div class="rail-sec">
         <div class="mono">SOURCE</div>
         <div class="seg-ctl">
@@ -187,6 +195,7 @@ select:hover { border-color: var(--ink); }
         </div>
       </div>
       <div class="rail-sec rail-save">
+        <button id="rec-retry" class="mono save-btn" hidden>RETRY UPLOAD</button>
         <button id="save-txt" class="mono save-btn">.TXT ↓</button>
         <button id="save-copy" class="mono save-btn">COPY</button>
         <div id="saved-at" class="mono" style="font-size:9.5px;color:var(--faint)"></div>

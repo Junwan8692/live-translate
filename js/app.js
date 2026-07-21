@@ -1,6 +1,7 @@
 import { createStore } from './store.js';
 import { createEngine } from './engine.js';
 import { createSync } from './sync.js';
+import { createRecorder, recExt } from './recorder.js';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt, fmtCost } from './helpers.js';
 
@@ -146,6 +147,8 @@ function route() {
   const outgoing = currentId && store.getSession(currentId);
   if (outgoing && (outgoing.status === 'listening' || outgoing.status === 'paused')) {
     engine.stop();                         // paused도 스트림을 보존하므로 화면 이탈 시 반드시 해제
+    stopRecording();
+    recStream?.getTracks().forEach(t => t.stop()); recStream = null;
     stopTick();
     store.updateSession(currentId, { status: 'ready', elapsedMs: acc });
     queueChanged();
@@ -211,10 +214,60 @@ const hydrationPromises = new Map();
 
 const elapsedNow = () => acc + (since ? Date.now() - since : 0);
 
+let recParts = 0;                         // 현재 세션의 녹음 파트 수 (기존 파트 포함)
+let pendingUploads = [];                  // 업로드 실패 파트 [{sessionId,seq,startMs,durMs,blob,mime,ext}]
+let activeRec = null;                     // 진행 중 MediaRecorder
+let recStream = null;                     // REC 모드가 직접 잡은 스트림
+
+async function captureStream(source) {
+  return source === 'tab'
+    ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+    : await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+}
+
+function startRecording(stream) {
+  if (!sb || !currentUser || activeRec) return;   // 로컬 전용/비로그인: 녹음 없음
+  const sessionId = currentId, seq = recParts + 1, startMs = elapsedNow();
+  const rec = createRecorder(stream, (blob, mime) => {
+    const part = { sessionId, seq, startMs, durMs: Math.max(0, elapsedNow() - startMs), blob, mime, ext: recExt(mime) };
+    void uploadPart(part);
+  });
+  if (rec) { activeRec = rec; recParts = seq; }
+}
+
+function stopRecording() {
+  if (activeRec && activeRec.state !== 'inactive') activeRec.stop();
+  activeRec = null;
+}
+
+async function uploadPart(part) {
+  try {
+    await sync.uploadRecording(part);
+    if (currentId === part.sessionId) void loadRecordings(part.sessionId); // Task 7이 구현 — 그 전엔 정의만 있는 no-op
+    if (part.sessionId === transcribePendingFor) void runTranscribe(part.sessionId); // Task 8 — 그 전엔 no-op
+  } catch (error) {
+    console.error('녹음 업로드 실패', error);
+    pendingUploads.push(part);
+    $('rec-retry').hidden = false;
+    $('saved-at').textContent = 'RECORDING UPLOAD FAILED — RETRY BELOW';
+  }
+}
+
+$('rec-retry').onclick = async () => {
+  const retry = pendingUploads; pendingUploads = [];
+  $('rec-retry').hidden = true;
+  for (const part of retry) await uploadPart(part);
+};
+
+let transcribePendingFor = null;
+async function loadRecordings() {}
+async function runTranscribe() {}
+
 const engine = createEngine({
   getKey: () => envKey || remoteKey || localStorage.getItem('gemini-key') || '',
   getLang: () => $('lang').value,
   onStatus: () => {},                     // 상태 표시는 앱 상태머신이 담당
+  onStream(stream) { startRecording(stream); },
   onPartial({ original, translated }) {
     $('cur-original').textContent = original;
     $('cur-translation').replaceChildren(document.createTextNode(translated), $('caret'));
@@ -252,6 +305,11 @@ function renderSession(id) {
   // 컨트롤 값 복원
   $('lang').value = s.targetLang;
   setSourceUI(s.source);
+  setModeUI(s.mode || 'live');
+  $('mode-sec').hidden = !sb || !currentUser;
+  recParts = 0;
+  pendingUploads = pendingUploads.filter(p => p.sessionId === id);
+  void loadRecordings(id);
   renderTranscript(id);
   $('saved-at').textContent = '';
   renderStatus(s.status === 'listening' || s.status === 'paused' ? 'ready' : s.status); // 새로고침 복원 시 진행 중이던 세션은 ready로
@@ -334,21 +392,43 @@ async function doAction(action) {
     if (action === 'start') {
       if (!await hydrateSegments(actionId)) return; // 원격 세션은 전사 하이드레이션 후에만 시작 — seq 충돌로 원격 전사 덮어쓰기 방지
       if (currentId !== actionId) return;
-      await engine.start(s.source);
-      if (currentId !== actionId) { engine.stop(); return; }
+      if (s.mode === 'rec') {
+        recStream = await captureStream(s.source);
+        const track = recStream.getAudioTracks()[0];
+        if (!track) { recStream.getTracks().forEach(t => t.stop()); recStream = null; $('src-caption').textContent = 'TAB SHARE NEEDS "SHARE AUDIO" CHECKED'; return; }
+        track.addEventListener('ended', () => doAction('pause'));
+        startRecording(recStream);
+      } else {
+        await engine.start(s.source);      // onStream 콜백이 녹음 시작
+      }
+      if (currentId !== actionId) { engine.stop(); stopRecording(); return; }
       startTick();
     }
-    else if (action === 'pause') { engine.pause(); stopTick(); }
+    else if (action === 'pause') { if (s.mode !== 'rec') engine.pause(); activeRec?.pause(); stopTick(); }
     else if (action === 'resume') {
       if (s.status !== 'paused' && !await hydrateSegments(actionId)) return; // paused는 이 기기가 라이브 작성자 — 캐시가 정본
       if (currentId !== actionId) return;
-      // ended에서 재개하면 End 때 스트림을 정리했으므로 fresh start 필요 (paused는 스트림 유지 → resume)
-      if (needFreshStart || s.status === 'ended') { await engine.start(s.source); needFreshStart = false; }
-      else await engine.resume();
-      if (currentId !== actionId) { engine.stop(); return; }
+      if (s.status === 'paused' && activeRec?.state === 'paused') {
+        if (s.mode !== 'rec') await engine.resume();
+        activeRec.resume();
+      } else {                              // ended→resume 또는 fresh start: 새 파트
+        if (s.mode === 'rec') {
+          recStream = await captureStream(s.source);
+          if (!recStream.getAudioTracks()[0]) { recStream.getTracks().forEach(t => t.stop()); recStream = null; return; }
+          startRecording(recStream);
+        } else if (needFreshStart || s.status === 'ended') { await engine.start(s.source); needFreshStart = false; }
+        else await engine.resume();
+      }
+      if (currentId !== actionId) { engine.stop(); stopRecording(); return; }
       startTick();
     }
-    else if (action === 'end') { engine.stop(); stopTick(); }
+    else if (action === 'end') {
+      if (s.mode === 'rec' && !store.getSegments(actionId).length) transcribePendingFor = actionId; // 업로드 완료 후 자동 전사
+      if (s.mode !== 'rec') engine.stop();
+      stopRecording();
+      recStream?.getTracks().forEach(t => t.stop()); recStream = null;
+      stopTick();
+    }
   } catch (e) {
     if (e.message !== 'NO_KEY' && currentId === actionId)
       $('status-line').textContent = 'ERROR: ' + e.message.toUpperCase().slice(0, 60);
@@ -371,9 +451,10 @@ function renderStatus(status) {
   $('caret').hidden = status !== 'listening';
   tm.style.color = status === 'listening' ? 'var(--ink)' : 'var(--disabled-text)';
   chip.style.color = status === 'listening' ? 'var(--acc)' : 'var(--muted)';
-  chip.textContent = { ready: '○ READY', listening: '● LISTENING', paused: '❚❚ PAUSED', ended: '— ENDED' }[status];
+  const rec = store.getSession(currentId)?.mode === 'rec';
+  chip.textContent = { ready: '○ READY', listening: rec ? '● RECORDING' : '● LISTENING', paused: '❚❚ PAUSED', ended: '— ENDED' }[status];
   line.style.color = status === 'listening' ? 'var(--acc)' : 'var(--muted)';
-  line.textContent = status === 'listening' ? `● TRANSLATING TO ${langName}` : 'SOURCE LANGUAGE AUTO-DETECTED';
+  line.textContent = status === 'listening' ? (rec ? '● RECORDING — TRANSCRIPT AFTER END' : `● TRANSLATING TO ${langName}`) : 'SOURCE LANGUAGE AUTO-DETECTED';
   $('hdr-target').textContent = langName;
   renderControls(status);
 }
@@ -411,13 +492,30 @@ async function switchSource(source) {
   const s = store.getSession(currentId);
   if (s.source === source) return;
   if (s.status === 'listening') await doAction('pause'); // 디자인 명세: 전환은 일시정지 후 재시작
-  if (s.status !== 'ready') { engine.stop(); needFreshStart = true; } // 이전 소스 스트림 폐기
+  if (s.status !== 'ready') { engine.stop(); stopRecording(); needFreshStart = true; } // 이전 소스 스트림 폐기
   store.updateSession(currentId, { source });
   setSourceUI(source);
   queueChanged();
 }
 $('src-mic').onclick = () => switchSource('mic');
 $('src-tab').onclick = () => switchSource('tab');
+
+function setModeUI(mode) {
+  $('mode-live').classList.toggle('seg-on', mode === 'live');
+  $('mode-rec').classList.toggle('seg-on', mode === 'rec');
+  $('mode-caption').textContent = mode === 'live' ? 'TRANSLATES IN REAL TIME + RECORDS' : 'RECORDS ONLY — TRANSCRIBED AFTER END';
+}
+function switchMode(mode) {
+  const s = store.getSession(currentId);
+  if (s.mode === mode) return;
+  if (s.status !== 'ready' && s.status !== 'ended') return; // 진행 중 전환 금지
+  store.updateSession(currentId, { mode });
+  setModeUI(mode);
+  renderStatus(store.getSession(currentId).status);
+  queueChanged();
+}
+$('mode-live').onclick = () => switchMode('live');
+$('mode-rec').onclick = () => switchMode('rec');
 
 $('playback').addEventListener('change', e => engine.setPlayback(e.target.checked));
 
