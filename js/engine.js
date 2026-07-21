@@ -118,6 +118,7 @@ export function createEngine(cb) {
       const track = mediaStream.getAudioTracks()[0];
       if (!track) { this.stop(); cb.onError('NO_AUDIO_TRACK'); throw new Error('NO_AUDIO_TRACK'); } // 탭 공유 시 "오디오 공유" 미체크
       track.addEventListener('ended', () => cb.onError('TRACK_ENDED')); // 사용자가 공유 중단 → app이 pause 처리
+      cb.onStream?.(mediaStream);          // 녹음 등 부가 소비자용 — 엔진은 관여하지 않음
       running = true; paused = false;
       try {
         await connect(key, ++gen);

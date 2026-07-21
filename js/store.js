@@ -9,9 +9,9 @@ export function createStore(storage) {
     listSessions: () => sessions().sort((a, b) => b.createdAt - a.createdAt),
     getSession: id => sessions().find(s => s.id === id) ?? null,
 
-    createSession({ targetLang = 'ko', source = 'mic' } = {}) {
+    createSession({ targetLang = 'ko', source = 'mic', mode = 'live' } = {}) {
       const now = Date.now();
-      const s = { id: crypto.randomUUID(), title: null, targetLang, source, status: 'ready', elapsedMs: 0, createdAt: now, endedAt: null, updatedAt: now };
+      const s = { id: crypto.randomUUID(), title: null, targetLang, source, mode, status: 'ready', elapsedMs: 0, createdAt: now, endedAt: null, updatedAt: now };
       write('relay.sessions', [...sessions(), s]);
       write(segmentsKey(s.id), []);
       store.enqueue({ type: 'session', id: s.id });
