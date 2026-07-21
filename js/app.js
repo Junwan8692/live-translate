@@ -7,9 +7,18 @@ import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, c
 const $ = id => document.getElementById(id);
 export const store = createStore(localStorage);
 
-// Gemini API 키: js/env.local.js(.gitignore)에 있으면 키 입력창 생략. 파일 없으면 localStorage 폴백.
+// Gemini API 키 우선순위: env.local.js > Supabase app_secrets(로그인 후) > localStorage(키 입력창).
 let envKey = '';
 import('./env.local.js').then(m => { envKey = m.GEMINI_KEY || ''; }).catch(() => {});
+
+let remoteKey = '';
+async function loadRemoteKey() {
+  if (remoteKey || !sb) return;
+  // allowlist RLS: 명단에 없는 사용자는 빈 결과 → 키 입력창 폴백
+  const { data, error } = await sb.from('app_secrets').select('value').eq('name', 'gemini_key').maybeSingle();
+  if (error) { console.error('app_secrets 조회 실패:', error); return; }
+  remoteKey = data?.value || '';
+}
 
 // ---------- Supabase Auth + 동기화 ----------
 // 클라이언트 초기화는 route() 이후 모듈 하단에서 비동기로 수행 —
@@ -84,6 +93,7 @@ async function syncForUser(user) {
   }
   localStorage.setItem('relay.lastUserId', user.id);
   syncedUserId = user.id;
+  void loadRemoteKey();                    // 로그인 확정 시 원격 키 1회 조회 (실패해도 번역 시작 시 키 입력창 폴백)
   try {
     if (!await sync.fullSync()) syncedUserId = null;
   } catch (error) {
@@ -202,7 +212,7 @@ const hydrationPromises = new Map();
 const elapsedNow = () => acc + (since ? Date.now() - since : 0);
 
 const engine = createEngine({
-  getKey: () => envKey || localStorage.getItem('gemini-key') || '',
+  getKey: () => envKey || remoteKey || localStorage.getItem('gemini-key') || '',
   getLang: () => $('lang').value,
   onStatus: () => {},                     // 상태 표시는 앱 상태머신이 담당
   onPartial({ original, translated }) {

@@ -68,3 +68,29 @@ revoke all on table public.sessions from authenticated;
 revoke all on table public.segments from authenticated;
 grant select, insert, update, delete on table public.sessions to authenticated;
 grant select, insert, update, delete on table public.segments to authenticated;
+
+-- Gemini API 키 배포용: allowed_emails 명단에 있는 로그인 사용자만 app_secrets를 읽는다.
+-- 명단·키 관리는 대시보드에서만 (일반 사용자용 정책 없음).
+--   insert into public.allowed_emails values ('user@example.com');
+--   insert into public.app_secrets values ('gemini_key', '<키>');
+create table public.allowed_emails (email text primary key);
+alter table public.allowed_emails enable row level security;
+
+-- app_secrets 정책의 서브쿼리도 조회자 RLS를 적용받으므로, 자기 행은 보여야 명단 확인이 된다.
+create policy "users see own allowlist row"
+  on public.allowed_emails
+  for select
+  to authenticated
+  using (email = (auth.jwt() ->> 'email'));
+
+create table public.app_secrets (name text primary key, value text not null);
+alter table public.app_secrets enable row level security;
+revoke all on table public.app_secrets from anon, authenticated;
+grant select on table public.app_secrets to authenticated;
+
+create policy "allowlisted users read secrets"
+  on public.app_secrets
+  for select
+  to authenticated
+  using (exists (select 1 from public.allowed_emails a
+                 where a.email = (auth.jwt() ->> 'email')));
