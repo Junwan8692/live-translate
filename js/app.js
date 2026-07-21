@@ -383,6 +383,8 @@ function renderSession(id) {
   $('player').removeAttribute('src'); delete $('player').dataset.path; $('player-row').hidden = true; parts = [];
   const s = store.getSession(id);
   acc = s.elapsedMs; since = null; needFreshStart = false; autoScroll = true;
+  $('scroll-region').classList.remove('show-src');
+  $('toggle-src').textContent = 'SHOW ORIGINAL';
   // 레일 헤더
   renderTitle();
   const c = new Date(s.createdAt);
@@ -623,6 +625,11 @@ $('api-key').addEventListener('change', e => {
 });
 
 $('back-link').onclick = () => { location.hash = '#/'; };
+
+$('toggle-src').onclick = () => {
+  const on = $('scroll-region').classList.toggle('show-src');
+  $('toggle-src').textContent = on ? 'SHOW TRANSLATION' : 'SHOW ORIGINAL';
+};
 
 // ---------- SAVE ----------
 const currentTxt = () => {
