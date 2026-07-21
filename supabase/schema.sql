@@ -117,7 +117,7 @@ create policy "users manage recordings in own sessions"
   with check (exists (select 1 from public.sessions s
                       where s.id = session_id and s.user_id = auth.uid()));
 revoke all on table public.recordings from anon;
-grant select, insert, delete on table public.recordings to authenticated;
+grant select, insert, update, delete on table public.recordings to authenticated;
 
 -- Storage: private 버킷, 경로 1번째 폴더 = 본인 uid 인 파일만 접근
 insert into storage.buckets (id, name, public) values ('recordings', 'recordings', false);

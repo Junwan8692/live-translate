@@ -316,7 +316,7 @@ async function runTranscribe(id) {
     const recs = await sync.listRecordings(id);
     for (const p of recs) {
       const blob = await (await fetch(p.url)).blob();
-      const items = await transcribeAudio({ key, blob, mime: blob.type || 'audio/mp4', targetLang: s.targetLang });
+      const items = await transcribeAudio({ key, blob, mime: p.path.endsWith('.webm') ? 'audio/webm' : 'audio/mp4', targetLang: s.targetLang });
       for (const g of transcriptToSegments(items, p.startMs)) {
         store.addSegment(id, { ...g, srcLang: null, timeLabel: timeLabel(new Date(s.createdAt + g.tsMs)) });
       }
@@ -378,8 +378,7 @@ function renderSession(id) {
   setModeUI(s.mode || 'live');
   $('mode-sec').hidden = !sb || !currentUser;
   recParts = 0;
-  pendingUploads = pendingUploads.filter(p => p.sessionId === id);
-  $('rec-retry').hidden = !pendingUploads.length;
+  $('rec-retry').hidden = !pendingUploads.some(p => p.sessionId === id); // 다른 세션 실패분은 보존 — RETRY는 전 세션 재시도
   void loadRecordings(id);
   renderTranscript(id);
   $('saved-at').textContent = '';
@@ -464,6 +463,8 @@ async function doAction(action) {
     if (action === 'start') {
       if (!await hydrateSegments(actionId)) return; // 원격 세션은 전사 하이드레이션 후에만 시작 — seq 충돌로 원격 전사 덮어쓰기 방지
       if (currentId !== actionId) return;
+      await loadRecordings(actionId);     // recParts 복원 대기 — 기존 파트 seq 충돌(덮어쓰기) 방지
+      if (currentId !== actionId) return;
       if (s.mode === 'rec') {
         recStream = await captureStream(s.source);
         const track = recStream.getAudioTracks()[0];
@@ -484,6 +485,8 @@ async function doAction(action) {
         if (s.mode !== 'rec') await engine.resume();
         activeRec.resume();
       } else {                              // ended→resume 또는 fresh start: 새 파트
+        await loadRecordings(actionId);     // recParts 복원 대기 — 기존 파트 seq 충돌(덮어쓰기) 방지
+        if (currentId !== actionId) return;
         if (s.mode === 'rec') {
           recStream = await captureStream(s.source);
           if (!recStream.getAudioTracks()[0]) { recStream.getTracks().forEach(t => t.stop()); recStream = null; return; }
@@ -495,6 +498,7 @@ async function doAction(action) {
       startTick();
     }
     else if (action === 'end') {
+      // ponytail: 사후 전사는 세그먼트가 하나도 없을 때 1회만 — REC 세션에 파트를 추가(ended→resume)한 재전사는 미지원, 필요해지면 파트 seq 기준 증분 전사로
       if (s.mode === 'rec' && !store.getSegments(actionId).length) transcribePendingFor = actionId; // 업로드 완료 후 자동 전사
       if (s.mode !== 'rec') engine.stop();
       stopRecording();
