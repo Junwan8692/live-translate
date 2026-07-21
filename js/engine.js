@@ -1,5 +1,6 @@
 import { GoogleGenAI, Modality } from 'https://esm.run/@google/genai';
 import { MODEL } from './config.js';
+import { downsampleTo16k } from './helpers.js';
 
 export function createEngine(cb) {
   let session = null, mediaStream = null, inCtx = null, outCtx = null, proc = null;
@@ -57,13 +58,15 @@ export function createEngine(cb) {
 
   // ---------- 오디오 입력 (16kHz PCM16, ~128ms 청크) ----------
   function pumpAudio() {
-    inCtx = new AudioContext({ sampleRate: 16000 });
+    try { inCtx = new AudioContext({ sampleRate: 16000 }); }
+    catch { inCtx = new AudioContext(); }  // 일부 브라우저는 sampleRate 옵션 자체를 거부
+    const srcRate = inCtx.sampleRate;      // iOS는 옵션을 무시하고 HW 레이트(보통 48k)를 줄 수 있음
     const src = inCtx.createMediaStreamSource(mediaStream);
     // ponytail: ScriptProcessor는 deprecated지만 AudioWorklet보다 단순. Phase 3에서 교체 검토.
     proc = inCtx.createScriptProcessor(2048, 1, 1);
     proc.onaudioprocess = e => {
       if (!session) return;
-      const f32 = e.inputBuffer.getChannelData(0);
+      const f32 = downsampleTo16k(e.inputBuffer.getChannelData(0), srcRate);
       const i16 = new Int16Array(f32.length);
       for (let i = 0; i < f32.length; i++) i16[i] = Math.max(-1, Math.min(1, f32[i])) * 0x7fff;
       session.sendRealtimeInput({ audio: { data: b64(i16.buffer), mimeType: 'audio/pcm;rate=16000' } });
