@@ -262,9 +262,14 @@ $('rec-retry').onclick = async () => {
 
 let transcribePendingFor = null;
 let parts = [];                            // 현재 세션의 녹음 파트 (url 포함)
+let pendingSeek = null;
+function clearPendingSeek() {
+  if (pendingSeek) { $('player').removeEventListener('loadedmetadata', pendingSeek); pendingSeek = null; }
+}
 async function loadRecordings(id) {
-  parts = await sync.listRecordings(id);
+  const fetched = await sync.listRecordings(id);
   if (currentId !== id) return;
+  parts = fetched;
   recParts = Math.max(recParts, parts.at(-1)?.seq ?? 0);
   const row = $('player-row');
   row.hidden = !parts.length;
@@ -280,14 +285,15 @@ async function loadRecordings(id) {
   loadPart(0);
 }
 function loadPart(i, at = 0, play = false) {
+  clearPendingSeek();
   const p = parts[i];
   if (!p?.url) return;
   $('player-part').value = i;
   const audio = $('player');
   if (audio.dataset.path !== p.path) { audio.src = p.url; audio.dataset.path = p.path; }
-  const apply = () => { audio.currentTime = at; if (play) void audio.play(); };
+  const apply = () => { pendingSeek = null; audio.currentTime = at; if (play) void audio.play(); };
   if (audio.readyState >= 1) apply();
-  else audio.addEventListener('loadedmetadata', apply, { once: true });
+  else { pendingSeek = apply; audio.addEventListener('loadedmetadata', apply, { once: true }); }
 }
 $('player-part').onchange = e => loadPart(+e.target.value);
 
@@ -331,6 +337,7 @@ const engine = createEngine({
 
 function renderSession(id) {
   currentId = id;
+  clearPendingSeek();
   $('player').removeAttribute('src'); delete $('player').dataset.path; $('player-row').hidden = true; parts = [];
   const s = store.getSession(id);
   acc = s.elapsedMs; since = null; needFreshStart = false; autoScroll = true;
