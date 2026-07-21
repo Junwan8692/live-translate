@@ -3,7 +3,7 @@ import { createEngine } from './engine.js';
 import { createSync } from './sync.js';
 import { createRecorder, recExt } from './recorder.js';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
-import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt, fmtCost } from './helpers.js';
+import { shortId, autoTitle, timeLabel, fmtTimer, fmtDateHeader, fmtIndexMeta, countWords, transition, toTxt, fmtCost, findPart } from './helpers.js';
 
 const $ = id => document.getElementById(id);
 export const store = createStore(localStorage);
@@ -261,7 +261,41 @@ $('rec-retry').onclick = async () => {
 };
 
 let transcribePendingFor = null;
-async function loadRecordings() {}
+let parts = [];                            // 현재 세션의 녹음 파트 (url 포함)
+async function loadRecordings(id) {
+  parts = await sync.listRecordings(id);
+  if (currentId !== id) return;
+  recParts = Math.max(recParts, parts.at(-1)?.seq ?? 0);
+  const row = $('player-row');
+  row.hidden = !parts.length;
+  $('scroll-region').classList.toggle('has-audio', !!parts.length);
+  if (!parts.length) return;
+  const sel = $('player-part');
+  sel.hidden = parts.length < 2;
+  sel.replaceChildren(...parts.map((p, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `PART ${p.seq}`;
+    return o;
+  }));
+  loadPart(0);
+}
+function loadPart(i, at = 0, play = false) {
+  const p = parts[i];
+  if (!p?.url) return;
+  $('player-part').value = i;
+  const audio = $('player');
+  if (audio.dataset.path !== p.path) { audio.src = p.url; audio.dataset.path = p.path; }
+  const apply = () => { audio.currentTime = at; if (play) void audio.play(); };
+  if (audio.readyState >= 1) apply();
+  else audio.addEventListener('loadedmetadata', apply, { once: true });
+}
+$('player-part').onchange = e => loadPart(+e.target.value);
+
+function seekTo(tsMs) {
+  const p = findPart(parts, tsMs);
+  if (!p) return;
+  loadPart(parts.indexOf(p), Math.max(0, (tsMs - p.startMs) / 1000), true);
+}
 async function runTranscribe() {}
 
 const engine = createEngine({
@@ -297,6 +331,7 @@ const engine = createEngine({
 
 function renderSession(id) {
   currentId = id;
+  $('player').removeAttribute('src'); delete $('player').dataset.path; $('player-row').hidden = true; parts = [];
   const s = store.getSession(id);
   acc = s.elapsedMs; since = null; needFreshStart = false; autoScroll = true;
   // 레일 헤더
@@ -363,6 +398,7 @@ function appendSeg(seg) {
     const ts = document.createElement('span');
     ts.className = 'ts';
     ts.textContent = seg.timeLabel;
+    ts.onclick = () => { if (parts.length) seekTo(seg.tsMs); };
     p.append(ts, text);
     $(col).append(p);
   }
