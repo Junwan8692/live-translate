@@ -290,6 +290,7 @@ async function loadRecordings(id) {
   const row = $('player-row');
   row.hidden = !parts.length;
   $('scroll-region').classList.toggle('has-audio', !!parts.length);
+  if (store.getSession(id)?.status === 'ended') renderControls('ended'); // 미전사 파트 여부 반영 (Transcribe 버튼)
   if (!parts.length) return;
   const sel = $('player-part');
   sel.hidden = parts.length < 2;
@@ -328,16 +329,18 @@ async function runTranscribe(id) {
   transcribing = true;
   if (currentId === id) $('status-line').textContent = 'TRANSCRIBING…';
   try {
-    const recs = await sync.listRecordings(id);
+    const recs = (await sync.listRecordings(id)).filter(p => !p.transcribedAt); // 증분: 전사 안 된 파트만
     for (const p of recs) {
       const blob = await (await fetch(p.url)).blob();
       const items = await transcribeAudio({ key, blob, mime: p.path.endsWith('.webm') ? 'audio/webm' : 'audio/mp4', targetLang: s.targetLang });
       for (const g of transcriptToSegments(items, p.startMs)) {
         store.addSegment(id, { ...g, srcLang: null, timeLabel: timeLabel(new Date(s.createdAt + g.tsMs)) });
       }
+      // 마커 실패는 치명적이지 않음 — 다음 수동 Transcribe에서 이 파트만 중복될 수 있어 로그만 남김
+      await sync.markTranscribed(id, p.seq).catch(e => console.error('전사 마커 실패', e));
     }
     queueChanged();
-    if (currentId === id) { renderTranscript(id); $('status-line').textContent = 'TRANSCRIPT READY'; renderControls(store.getSession(id).status); }
+    if (currentId === id) { renderTranscript(id); $('status-line').textContent = 'TRANSCRIPT READY'; void loadRecordings(id); }
   } catch (error) {
     console.error('사후 전사 실패', error);
     if (currentId === id) $('status-line').textContent = 'TRANSCRIBE FAILED — PRESS TRANSCRIBE TO RETRY';
@@ -515,8 +518,7 @@ async function doAction(action) {
       startTick();
     }
     else if (action === 'end') {
-      // ponytail: 사후 전사는 세그먼트가 하나도 없을 때 1회만 — REC 세션에 파트를 추가(ended→resume)한 재전사는 미지원, 필요해지면 파트 seq 기준 증분 전사로
-      if (s.mode === 'rec' && !store.getSegments(actionId).length) transcribePendingFor = actionId; // 업로드 완료 후 자동 전사
+      if (s.mode === 'rec') transcribePendingFor = actionId; // 업로드 완료 후 자동 전사 — 전사 안 된 파트만 증분 처리
       if (s.mode !== 'rec') engine.stop();
       stopRecording();
       stopTick();
@@ -570,7 +572,7 @@ function renderControls(status) {
   else {
     mk('▶ Resume session', 'btn-acc', () => doAction('resume'));
     const s = store.getSession(currentId);
-    if (s?.mode === 'rec' && !store.getSegments(currentId).length)
+    if (s?.mode === 'rec' && parts.some(p => !p.transcribedAt))
       mk('Transcribe', 'btn-acc-line', () => runTranscribe(currentId));
     else box.firstChild.style.gridColumn = '1 / -1';
   }

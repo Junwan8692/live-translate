@@ -127,3 +127,11 @@ create policy "own recordings insert" on storage.objects for insert to authentic
   with check (bucket_id = 'recordings' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy "own recordings delete" on storage.objects for delete to authenticated
   using (bucket_id = 'recordings' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- 파트별 전사 완료 마커 — 증분 전사(ended→resume로 추가된 파트만 재전사) 기준.
+-- 기존 프로젝트 마이그레이션: alter 후, 이미 전사된 파트를 세그먼트 시간 범위로 역추정해 마킹한다.
+alter table public.recordings add column transcribed_at timestamptz;
+update public.recordings r set transcribed_at = now()
+ where exists (select 1 from public.segments g
+               where g.session_id = r.session_id
+                 and g.ts_ms between r.start_ms and r.start_ms + r.dur_ms);

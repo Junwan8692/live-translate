@@ -51,6 +51,7 @@ export const recordingFromRow = r => ({
   startMs: r.start_ms,
   durMs: r.dur_ms,
   path: r.path,
+  transcribedAt: r.transcribed_at ?? null,
 });
 
 // Postgres 제약/권한 위반(22*/23*/42*)은 재시도해도 영원히 실패한다.
@@ -216,6 +217,14 @@ export function createSync({ client, store, onSessionsChanged = () => {}, onStat
     return parts.map((p, i) => ({ ...p, url: signed[i]?.signedUrl ?? null }));
   }
 
+  // 파트 전사 완료 마커 — 증분 전사(전사 안 된 파트만 처리)의 기준
+  async function markTranscribed(sessionId, seq) {
+    const { error } = await client.from('recordings')
+      .update({ transcribed_at: new Date().toISOString() })
+      .eq('session_id', sessionId).eq('seq', seq);
+    if (error) throw error;
+  }
+
   function dispose() {
     clearTimeout(drainTimer);
     window.removeEventListener('online', handleOnline);
@@ -226,5 +235,5 @@ export function createSync({ client, store, onSessionsChanged = () => {}, onStat
   }
 
   if (client) window.addEventListener('online', handleOnline);
-  return { queueChanged, fullSync, hydrateSegments, uploadRecording, listRecordings, flush: drainQueue, dispose };
+  return { queueChanged, fullSync, hydrateSegments, uploadRecording, listRecordings, markTranscribed, flush: drainQueue, dispose };
 }
