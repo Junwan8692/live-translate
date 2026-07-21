@@ -563,7 +563,8 @@ function renderControls(status) {
     if (disabled) b.disabled = true; else b.onclick = onclick;
     box.append(b);
   };
-  if (status === 'ready') { mk('Start translation', 'btn-acc', () => doAction('start')); mk('End session', '', null, true); }
+  const rec = store.getSession(currentId)?.mode === 'rec';
+  if (status === 'ready') { mk(rec ? 'Start recording' : 'Start translation', 'btn-acc', () => doAction('start')); mk('End session', '', null, true); }
   else if (status === 'listening') { mk('❚❚ Pause', 'btn-ink-line', () => doAction('pause')); mk('End session', 'btn-acc-line', () => doAction('end')); }
   else if (status === 'paused') { mk('▶ Resume', 'btn-acc', () => doAction('resume')); mk('End session', 'btn-acc-line', () => doAction('end')); }
   else {
